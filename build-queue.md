@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v32 - Session 40 closeout*
+*v33 - Session 41 closeout*
 
 ## Priority key
 
@@ -16,6 +16,14 @@ Phase 3e backend shipped end-to-end and verified. Six AIRSA AI section generator
 ## Session 40 deltas summary
 
 Phase 3e frontend SHIPPED. AirsaCombinedReport.tsx (~1360 lines) deployed end-to-end. BUG-1 (MyResults isAIRSA detection) fixed. BUG-5 RETRACTED — code review of calculate-scores v42 Branch B and airsa_release_self_only RPC confirmed neither path re-stamps completed_at; the reported bug does not exist. The original 15-section spec became a 14-section spec: the developmental quadrant map (Section 10) was removed because it duplicated the lollipop's information in less-readable form and its 3x3 cell encoding wasn't glanceable. STATUS_COLORS canonical mapping locked with five distinct brand hues (Underestimate moved from teal to purple #3C096C). Star (★) semantics changed from static is_new_skill flag to dynamic top-3-priorities marker, surfaced only in Section 9 lollipop row labels. Action buttons standardized to PTP/NAI pattern (Export PDF / Retake / Take Another). Lollipop level-zone shading colors locked. Multiple visual polish iterations (v1 through v6 plus a hotfix for a Rules of Hooks violation introduced by the v6 prompt). Maya test fixture repaired (16 missing response_value_text values backfilled, skill_level_breakdown self_response field patched). Session 41 opens with Phase 4 PDF export.
+
+## Session 41 deltas summary
+
+Phase 4 SHIPPED. AIRSA combined report PDF export delivered end-to-end across three Lovable prompts: v1 (initial 5-file build covering generateAirsaPdf.ts, assemblePdfDataForUser.ts assembleAirsaPdfData export, ExportPdfModal AIRSA branch, MyResults dispatcher lift, AirsaCombinedReport onExportClick prop), v2 (four bug fixes: star ★ rendering as ampersand due to WinAnsiEncoding limitation, skill reference one-skill-per-page from incorrect entry-height calculation, top priorities cards splitting from same-shape height bug, methodology footer date showing em-dash placeholder from missing facet_data.generated_at field), v3 (Profile overview heading-orphan + narrow-wrap fix using sectionHeading minContentNeeded argument plus full CONTENT_W - 12 wrap width). Final 9-page PDF rendered cleanly across cover + 14 sections, jsPDF native primitives throughout, text fully selectable, lollipop rendered with native lines/circles preserving STATUS_COLORS canonical mapping including dash pattern on blind_spot only, level-zone shading bands present, ASCII asterisk replaces star glyph in PDF only (on-screen report keeps ★).
+
+Phase 5 strategic frame designed and locked (build deferred to Sessions 42+). Five-tab IA mirroring PTP/NAI canonical structure (Overview / Domains / Skill Inventory / Manager Calibration / Trends + Cross-Instrument). Talent Calibration Index (TCI) locked as headline metric: % of pairs in aligned + confirmed_strength out of all assessed skill-pairs, 0-100 higher is better. Confirmed gaps do NOT count positive (real capability gap, not earned strength). Greatest Growth Opportunities / Strengths to Capitalize paired panels added on Overview tab between sub-metric cards and Calibration Map: top 2 skills + top 2 domains per panel, expand-link for full ranking. Composite Priority Score (CPS) formula locked: cps_growth = (1 - readiness_index) * misalignment_weight where misalignment_weight is bounded [1.0, 2.0] = 1 + (blind_spot_pct + confirmed_gap_pct) / 100; cps_strength = confirmed_strength_pct. Tie-breakers: growth prefers higher blind_spot_pct, strength prefers higher n. Calibration Map confirmed as visual centerpiece: 24-skill × N-departments heatmap using locked STATUS_COLORS by modal status, intensity by status %, priority markers (orange ▲ for top growth, green ◆ for top strength) on row labels tracking the active slice. Manager Calibration tab confirmed for v1 with min-3-reports privacy threshold. Cross-instrument tab confirmed for v1 matching PTP/NAI parity. Schema strategy locked: match PTP/NAI exactly, reuse org_dashboard_narratives with instrument_id = 'INST-003' carrying AIRSA-specific JSONB shape in dimension_scores + narrative_text columns; index_score column carries TCI. Aggregate cadence locked: live RPC computation per dashboard load (mirrors PTP/NAI get_instrument_aggregate pattern), no nightly cron, no aggregate table. AI narrative cached in org_dashboard_narratives, regenerated on user click. Phase 5 split into Phase 5a backend (RPC + Edge Function + schema additions) and Phase 5b frontend (5 tabs of UI) per Phase 3 precedent.
+
+Two architectural learnings logged: (1) jsPDF default helvetica uses WinAnsiEncoding which excludes U+2605 (★); the encoder substitutes a fallback character (observed: ampersand). Loading custom Unicode fonts is heavyweight; safer pattern is to use ASCII-equivalent glyphs in PDFs and reserve Unicode for on-screen contexts. (2) jsPDF splitTextToSize uses the CURRENT font for width calc; setting font BEFORE calling splitTextToSize is the canonical pattern (already commented in generateNaiPdf.ts line 406-407). Skipping this produces correct text but wrong wrap width, causing entries to render at narrow column widths even when full content area is available. Section 6 Profile overview shipped with this bug in v2 and was fixed in v3.
 
 ## Verified bugs with explicit fix instructions
 
@@ -149,13 +157,93 @@ Self-only state: same layout structure with manager columns hidden, no divergenc
 
 Maya fixture repaired during session: 16 self responses had null response_value_text (fixture script left them null); backfilled via SQL UPDATE mapping numeric values to the four frequency labels. skill_level_breakdown JSONB self_response field also patched via jsonb_set on the affected assessment_result. All 24/24 self_responses populated post-fix.
 
-### Phase 4 [LAUNCH-BLOCKING, NEXT UP]: PDF export of combined report
+### Phase 4 [SHIPPED in Session 41]: PDF export of combined report
 
-Replicate the 14-section AirsaCombinedReport on-screen layout as a downloadable PDF. Mirror the existing PTP/NAI PDF export patterns (assemblePdfDataForUser.ts is the model). Self-only PDF variant for the timeout case. Use jsPDF native pattern, NOT html2canvas — text must be selectable and the PDF must render reliably across browsers without screen-shotting. Include all status colors (using the canonical STATUS_COLORS mapping locked in Session 40, including Underestimate = #3C096C purple), the lollipop level-zone shading bands (peach #FCE4D6 / sky-blue #D6E8F5 / green-tint #D8E8D0), star markers on the user's three top-priority skills in Section 9, and the standardized button row replaced by a footer link back to the report. Open Session 41 with this work.
+Status: Complete. End-to-end verified across three Lovable prompts (initial 5-file build + two fix passes for jsPDF rendering issues).
 
-### Phase 5 [HIGH but POST-LAUNCH OK]: AIRSA org dashboard
+What shipped:
 
-Org admin view of aggregate AIRSA results: alignment %, blind-spot patterns, dev priorities by department. Different scope from individual report; can ship after soft launch.
+- `src/lib/generateAirsaPdf.ts` (NEW): jsPDF native renderer mirroring `generateNaiPdf.ts` structure. Cover page + 14 sections (Header always-on, 12 toggleable, Section 3 buttons skipped). All status colors hardcoded to match canonical Session 40 STATUS_COLORS mapping including blind_spot dash pattern. Lollipop rendered as native primitives (lines + circles) on its own page, level-zone shading bands pre-blended against white at 60% to dodge jsPDF GState reliability issues. Filename pattern `BrainWise-AIRSA[-Coach][-SelfOnly]-<LastName>-<YYYY-MM-DD>.pdf`. Text fully selectable.
+- `src/lib/assemblePdfDataForUser.ts` (EDIT): added `assembleAirsaPdfData()` export. Existing PTP/NAI assembly untouched. Reuses `fetchCommon()` helper.
+- `src/components/results/ExportPdfModal.tsx` (EDIT): added `AirsaPdfSectionsUi`, `AIRSA_GROUPS` config, `instrumentType: "AIRSA"` branch, `onExportAirsa` prop. PTP/NAI code paths untouched.
+- `src/pages/MyResults.tsx` (EDIT): added `handleAirsaPdfExport` callback. Lifted `<ExportPdfModal>` out of `!isAIRSA` branch so it renders for all instruments. AIRSA dispatch wired correctly.
+- `src/components/results/AirsaCombinedReport.tsx` (EDIT): replaced `alert("PDF export coming soon")` stub with `onExportClick` prop. Original 1360-line component otherwise untouched, preserving all Session 40 visual polish and Rules of Hooks structure.
+
+Three bugs fixed across v2 and v3 prompts:
+
+- BUG-A: Star ★ rendering as ampersand `&` due to jsPDF default helvetica using WinAnsiEncoding (no U+2605 codepoint). Fix: PRIORITY_GLYPH = "*" constant in PDF generator only; on-screen report keeps ★.
+- BUG-B: Skill reference list rendering one entry per page due to height calc using `rowH + 2` against an undersized constant. Fix: compute actual entry height from headingH + domainH + descLines * 4.2 + padH, set font BEFORE splitTextToSize, use computed height for both ensureBlockSpace and y advance.
+- BUG-C: Top 3 priorities cards splitting across pages with extra page break. Same root cause as BUG-B; same fix shape applied to priority card rendering.
+- BUG-D: Methodology footer "Report generated —" missing date because AI section facet_data does not carry generated_at. Fix: fall back to assessment_results.created_at in assembler; replace em-dash placeholders with hyphens in generator.
+- BUG-E: Profile overview heading orphaned from sand body card on prior page; sand body wrapping at ~110mm instead of full content width. Cause: page-break check ran AFTER heading was drawn, and wrap width was computed against stale narrow value. Fix: compute card height first, pass to sectionHeading as minContentNeeded argument so heading and card always land on the same page; use CONTENT_W - 12 wrap width matching the "What this means" cards.
+
+Final PDF: 9 pages for Maya dual-rater fixture (cover + heatmap + Profile overview + What this means + Action plan + Lollipop + Conversation guide + Top priorities + Cross-instrument placeholder + Skill reference + Methodology). All toggles work; self-only variant verified with `-SelfOnly` filename suffix and lollipop single-dot mode.
+
+### Phase 5 [HIGH but POST-LAUNCH OK, STRATEGIC FRAME LOCKED in Session 41]: AIRSA org dashboard
+
+Strategic frame designed and locked Session 41. Build deferred to Phase 5a backend + Phase 5b frontend (Phase 3 split precedent).
+
+**Central thesis:** AIRSA's dashboard answers a structurally different question than PTP/NAI. Where PTP/NAI tell leadership about population states (threat reactivity, cognitive friction), AIRSA tells leadership about **calibration** — how accurately the organization sees its own AI talent. The data shape is fundamentally different: AIRSA is the only dual-rater instrument, so the org-level data isn't a distribution of scores but a distribution of agreements and disagreements.
+
+**Headline metric: Talent Calibration Index (TCI)**
+
+- Range: 0-100, higher is better
+- Formula: `TCI = (count of aligned + confirmed_strength) / (total assessed skill-pairs) × 100`
+- Confirmed gaps do NOT count positive (real capability gap, not earned strength)
+- Stored in `org_dashboard_narratives.index_score` (existing polymorphic column)
+
+Three companion sub-metrics in the headline strip: Alignment rate (any same-direction read), Blind spot rate, Underestimate rate.
+
+**Tab structure (5 tabs, mirrors PTP/NAI):**
+
+1. **Overview**: persistent header with TCI; slice controls (All / Department / Level / Team / Supervisor — supervisor slice is AIRSA-new); 4 sub-metric cards; AI Readiness Summary card with top 3 recommended actions; Greatest Growth Opportunities / Strengths to Capitalize paired panels (top 2 skills + top 2 domains per panel, full ranking via expand link); Calibration Map (visual centerpiece); Risk flags.
+
+2. **Domains**: 8 domain cards (PTP dimension card pattern). Each card: domain name + colored dot, average self-readiness 3-zone bar, average manager-readiness 3-zone bar, status distribution 5-segment stacked bar using STATUS_COLORS. Click to expand for per-skill breakdown within domain.
+
+3. **Skill Inventory**: sortable filterable table (Skill # | Name | Domain | Self avg | Manager avg | TCI | Blind spot % | Underestimate % | n). Default sort = `cps_growth DESC` ("Sort by growth priority"). Row expand: per-department TCI for that skill, top blind-spot departments, top underestimate departments, AI-generated intervention recommendation.
+
+4. **Manager Calibration** (AIRSA-unique tab, NOT in PTP/NAI): aggregates by `users.supervisor_user_id` chain. Per-manager panel: name, report count, TCI scoped to their reports, blind-spot rate vs underestimate rate (asymmetry signals over-estimator vs under-estimator tendency), calibration consistency. Top 5 best-calibrated / Bottom 5. **Privacy threshold: minimum 3 reports per manager** (otherwise suppressed with "n<3" tooltip).
+
+5. **Trends + Cross-Instrument**: LineChart of TCI over time (PTP/NAI Trends pattern); PTP × AIRSA and NAI × AIRSA correlations using existing C.A.F.E.S–PTP co-elevation framework.
+
+**Composite Priority Score (CPS) — locked Session 41**
+
+Each skill and domain gets two scores per slice:
+
+- `cps_growth = (1 - readiness_index) * misalignment_weight`
+- `cps_strength = confirmed_strength_pct`
+
+Where readiness_index maps Foundational=0.0 / Proficient=0.5 / Advanced=1.0 averaged across all pairs in the slice, and misalignment_weight = `1 + (blind_spot_pct + confirmed_gap_pct) / 100` bounded [1.0, 2.0]. Tie-breakers: growth prefers higher blind_spot_pct (org doesn't yet see the problem), strength prefers higher n (more reliable signal). Suppression: n < 5 excluded. Frontend slices [0..2) for the panel, [2..] for the expand-full view.
+
+**Calibration Map (visual centerpiece):**
+
+- Rows: 24 skills, grouped visually by 8 domain bands
+- Columns: departments (or active slice value)
+- Cell color: locked STATUS_COLORS by modal status; intensity by % of pairs in that status
+- Priority markers (Session 41 lock): orange ▲ for top 2 growth skills, green ◆ for top 2 strength skills; markers track active slice's rankings
+- Hover popover: n, % aligned, % blind, % under
+- Click: drill into underlying pairs (privacy threshold respected)
+- Suppressed cells (n < 5): rendered gray with "n<5" tooltip
+
+**Schema strategy (locked):**
+
+Match PTP/NAI pattern. Reuse `org_dashboard_narratives` table with `instrument_id = 'INST-003'`. AIRSA-specific aggregates carried in existing `dimension_scores` JSONB column. AI workforce narrative cached in `narrative_text` JSONB column. TCI carried in `index_score` numeric column. **No new table.** May need to add `'supervisor'` to slice_type CHECK constraint (verify in Phase 5a recon).
+
+**Cadence (locked):**
+
+Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(organization_id, slice_type, slice_value)` computes aggregates from `assessment_results` on each dashboard load. No nightly cron, no pre-computed aggregate table. AI narrative cached and regenerated on user click via new Edge Function `generate-airsa-org-narrative` (Class B internal-secret pattern, mirrors AIRSA individual-level generators).
+
+**Privacy thresholds (locked):**
+
+- Calibration Map cells, Skill Inventory rollups, Trends per-period: minimum 5 pairs
+- Manager Calibration tab: minimum 3 reports per manager
+- Suppressed everything renders gray with "n<X" tooltip
+
+**Phase 5a backend** (new RPC + new Edge Function + schema additions). 8-block recon checklist staged in session-41-to-42 handoff. Do recon BEFORE writing any migration.
+
+**Phase 5b frontend** (5 tabs of UI; Calibration Map; Manager Calibration tab; cross-instrument tab). Mirror NAI's `CompanyDashboard.tsx` patterns where applicable.
+
+**Deferred to v2 (post-launch):** skill-level radar chart on 24 axes (unreadable; heatmap is better); time-comparison overlays on Calibration Map; anonymous self-report mode; predictive "if you close blind spots in Skill X, expected TCI gain is Y" (requires platform-wide outcome data not yet available).
 
 ### Phase 6 [SHIPPED]: Instrument toggle interactions
 
@@ -173,15 +261,23 @@ If not done before launch, the cross-instrument section renders empty for users 
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 41 opening
+## Top priority items for Session 42 opening
 
-### [LAUNCH-BLOCKING] Phase 4: AIRSA combined report PDF export
+### [HIGH] Phase 5a backend recon (do FIRST, before any migration)
 
-Write the assemblePdfDataForUser-style helper for AIRSA. Mirror PTP/NAI PDF export patterns. Use jsPDF native (NOT html2canvas). All 14 sections render to PDF. Use the canonical STATUS_COLORS mapping, the level-zone shading, and the star markers exactly as they render on screen. Self-only PDF variant for the timeout case. After PDF lands, run a single end-to-end Maya fixture verification covering on-screen + PDF, both dual-rater and self-only.
+8-block recon checklist staged in session-41-to-42 handoff. Run `get_instrument_aggregate` definition extraction, NAI dashboard call-pattern read, existing org-narrative Edge Function audit, slice_type CHECK constraint verification, manager calibration data quality audit (% of users with supervisor_user_id set), AIRSA dimension JSONB shape compatibility check, audit production AIRSA rows for null divergence/breakdown columns, feature flag check. Present findings as summary to Cole BEFORE writing the Phase 5a build prompt.
 
-### [HIGH] AI generate pass
+### [HIGH] Phase 5a backend build
 
-Final phrasing tweaks across all six AI functions. Specific items: residual "this creates" leakage in profile-overview, slight inference-overreach phrasing, fine-tuning toward purer factual observation. Now that all six sections render together in the new frontend, the tone is evaluable end-to-end on Maya's fixture.
+After recon, write a single-pass prompt covering: migration to add `'supervisor'` slice_type (and any other slice values needed); new RPC `get_airsa_aggregate(organization_id, slice_type, slice_value)`; new Edge Function `generate-airsa-org-narrative` (Class B internal-secret pattern, mirrors AIRSA individual-level generators). Verify SQL end-to-end against Maya fixture before scheduling Phase 5b.
+
+### [HIGH] Phase 5b frontend build
+
+Mirror NAI's `CompanyDashboard.tsx` patterns. 5 tabs: Overview / Domains / Skill Inventory / Manager Calibration / Trends + Cross-Instrument. Calibration Map as visual centerpiece with priority markers. Greatest Growth Opportunities / Strengths to Capitalize panels on Overview using CPS-ranked top 2 skills + top 2 domains. Coverage caveat banner if Manager Calibration tab data quality is poor.
+
+### [HIGH] AI generate pass (carried from Session 41)
+
+Final phrasing tweaks across all six AIRSA AI functions. Specific items: residual "this creates" leakage in profile-overview, slight inference-overreach phrasing, fine-tuning toward purer factual observation. Now that all six sections render together in the new frontend AND the PDF, the tone is evaluable end-to-end on Maya's fixture in both surfaces.
 
 ## Session 40 design decisions locked
 
@@ -248,7 +344,41 @@ Section 10 (Developmental quadrant map) was built and shipped in v1, then remove
 
 If a divergence-summary visual is wanted later, the recommended path is a horizontal stacked bar showing the count of skills per status (information density is higher than the quadrant's 3x3 collapse). Defer indefinitely; lollipop + heatmap + Section 7 prose cover this ground.
 
-## Color refactor follow-up items
+## Session 41 design decisions locked
+
+### Talent Calibration Index (TCI) — headline metric for AIRSA org dashboard
+
+`TCI = (count of aligned + confirmed_strength) / (total assessed skill-pairs) × 100`. Range 0-100, higher is better. Confirmed gaps do NOT count positive (real capability gap, not earned strength). Stored in `org_dashboard_narratives.index_score` (existing polymorphic numeric column).
+
+### Composite Priority Score (CPS) — drives Greatest Growth / Strengths panels and Skill Inventory default sort
+
+`cps_growth = (1 - readiness_index) * misalignment_weight` where readiness_index = avg(self+manager levels) mapped to [0,1] (Foundational=0, Proficient=0.5, Advanced=1.0) and misalignment_weight = `1 + (blind_spot_pct + confirmed_gap_pct) / 100` bounded [1.0, 2.0]. `cps_strength = confirmed_strength_pct`. Tie-breakers: growth prefers higher blind_spot_pct, strength prefers higher n. Suppression at n < 5.
+
+### Calibration Map — visual centerpiece of AIRSA org Overview tab
+
+24-skill × N-departments heatmap. Cell color = locked STATUS_COLORS by modal status. Cell intensity = % of pairs with that status. Priority markers: orange ▲ for top 2 growth skills, green ◆ for top 2 strength skills, on row labels, tracking the active slice's CPS rankings.
+
+### AIRSA org dashboard schema strategy
+
+Match PTP/NAI exactly. Reuse `org_dashboard_narratives` table with `instrument_id = 'INST-003'`. Aggregates carried in `dimension_scores` JSONB. AI narrative cached in `narrative_text` JSONB. TCI in `index_score` numeric. No new aggregate table. May need to add `'supervisor'` to `slice_type` CHECK constraint (verify in Phase 5a recon).
+
+### AIRSA org dashboard cadence
+
+Live RPC computation per dashboard load via new `get_airsa_aggregate(organization_id, slice_type, slice_value)`, mirroring PTP/NAI `get_instrument_aggregate` pattern. No nightly cron, no pre-computed aggregate table. AI narrative cached and regenerated on user-triggered click via new Edge Function `generate-airsa-org-narrative`.
+
+### Manager Calibration tab privacy threshold
+
+Minimum 3 reports per manager required to display the manager's calibration breakdown. Cells below threshold render as suppressed gray with "n<3" tooltip. Coarser threshold than the 5-pair platform standard because manager cohort sizes are inherently smaller; the trade-off is intentional to make the tab usable in real-customer accounts.
+
+### jsPDF rendering constraints (architectural learnings from Phase 4)
+
+1. **WinAnsiEncoding limitation.** jsPDF default helvetica uses WinAnsiEncoding which excludes U+2605 (★). The encoder substitutes a fallback character (observed: ampersand `&`). Pattern: use ASCII-equivalent glyphs in PDFs, reserve Unicode glyphs for on-screen contexts. Loading custom Unicode fonts is heavyweight and not worth it for single-character substitutions.
+
+2. **splitTextToSize font-state dependency.** jsPDF's `splitTextToSize(text, width)` uses the CURRENT font for width calculation. Setting font BEFORE calling splitTextToSize is the canonical pattern (already commented in `generateNaiPdf.ts` line 406-407). Skipping this produces correct text but wrong wrap width, causing entries to render at narrow column widths even when full content area is available.
+
+3. **Section heading anti-orphan pattern.** When a section has a body card whose height is computable upfront, pass the card height + heading clearance as the `minContentNeeded` argument to `sectionHeading()`. This forces a page break BEFORE drawing the heading if the page can't fit heading + card together. Skipping this orphans the heading on one page with the body card on the next.
+
+
 
 ### [SHIPPED in Session 39]: NAI Saturation color alignment
 
