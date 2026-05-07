@@ -1,12 +1,12 @@
 # BrainWise System Architecture Reference
 
-*v33 - Session 39 closeout (Phase 3e backend shipped, AI section generators live)*
+*v34 - Session 40 closeout (Phase 3e frontend shipped, AirsaCombinedReport live)*
 
 ## 1. Overview
 
-This reference captures the canonical system architecture for the BrainWise platform as of Session 39 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), and Phase 3e backend (AI section generators) are shipped to production and verified. Phase 3c and 3d (manager-rating frontend) carry forward from Session 38; Phase 3e frontend (15-section combined report) is the next launch-blocking deliverable.
+This reference captures the canonical system architecture for the BrainWise platform as of Session 40 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), and Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report) are all shipped to production and verified. Phase 4 (PDF export) is the next launch-blocking deliverable.
 
-A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. The complete brand color map is below in Section 5.
+A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. Phase 3e frontend shipped via AirsaCombinedReport.tsx in Session 40 with multiple visual polish iterations. The complete brand color map and the AIRSA STATUS_COLORS canonical mapping are in Section 5.
 
 ## 2. AIRSA dual-rater workflow - current state
 
@@ -200,7 +200,7 @@ Distribution verified: 24 total rows, 3 with is_new_skill = true (10, 17, 22), d
 
 Used by: calculate-scores Branch A (joins to build skill_level_breakdown); the 6 AI section generators (read indirectly through skill_level_breakdown which already contains the denormalized skill metadata).
 
-## 3. Frontend - Phase 3b shipped, Phase 3e frontend pending
+## 3. Frontend - Phase 3b through Phase 3e shipped
 
 ### 3.1 /my-results AIRSA awaiting-state (shipped Session 38)
 
@@ -214,9 +214,30 @@ Awaiting state polls airsa_get_my_paired_manager_status periodically with early-
 
 The self-rater cannot read the manager assessment row directly (RLS blocks via 2.6). The awaiting-state UI gets data exclusively through airsa_get_my_paired_manager_status RPC.
 
-### 3.3 Combined report frontend (PENDING - Session 40 launch-blocking)
+### 3.3 Combined report frontend (SHIPPED in Session 40)
 
-15-section AirsaCombinedReport.tsx layout, full spec in Build Queue Phase 3e frontend section. Reads assessment_results.skill_level_breakdown plus all facet_interpretations rows where section_type LIKE 'airsa_%' in a single fetch on mount. Loading skeletons per section while AI fan-out is still completing.
+AirsaCombinedReport.tsx (~1360 lines) is the canonical 14-section AIRSA combined report. Mounted at `/my-results` for users whose selected result has `instrument_id === "INST-003"`. Reads `assessment_results.skill_level_breakdown` plus all `facet_interpretations` rows where `section_type LIKE 'airsa_%'` in a single fetch on mount. Loading skeletons per section while AI fan-out is still completing. Polls every 8 seconds for missing AI sections until all six arrive or 90 seconds elapsed.
+
+Section list (14 sections, Section 10 quadrant removed in Session 40):
+
+1. Header
+2. At a glance (4 metric cards)
+3. Action buttons (Export PDF / Retake / Take Another - matches PTP/NAI standard)
+4. How to read your results (with AIRSA overview folded in, 4-level frequency to 3-level readiness)
+5. Domain heatmap (5-status column with `whiteSpace: nowrap` pill, Status column min-width 160)
+6. Profile overview (AI - airsa_profile_overview)
+7. What does this mean to me? (AI - airsa_what_this_means, 4 themed boxes with tone pills)
+8. Action plan (AI - airsa_action_plan, 3 timeframes with navy/teal/green branded pills)
+9. Skill-by-skill comparison lollipop (24 skills, chartW=560, level-zone shading, combined legend at top with star explanation)
+10. Conversation guide (AI - airsa_conversation_guide, 3 openings with role pills)
+11. Top 3 development priorities (AI - airsa_top_priorities, status-color pills)
+12. How this connects to your other assessments (AI - airsa_cross_instrument, conditional)
+13. Skill reference list, collapsed (all 24 skills)
+14. Methodology footer
+
+Star marker semantics: `★` next to a skill name in Section 9 indicates the skill is one of the user's three top priorities (sourced from `airsa_top_priorities.content[].skill_number`). Computed via useMemo on the `data` object. NOT surfaced in Section 11 priority cards or Section 13 reference list.
+
+Self-only mode: same layout structure, manager columns hidden, no divergence pills, banner explaining manager rating did not arrive. The SkillReference popover, the lollipop legend, and the heatmap status column all gate on `!isSelfOnly`.
 
 ## 4. Production hot-fix: corporate invitation redemption (carried from v32)
 
@@ -253,16 +274,33 @@ Instrument-level:
 
 The CSS token --bw-amber: #FFB703 in src/index.css and src/styles/marketing-tokens.css is preserved. It remains the brand palette yellow used by the --warning semantic token and other UI elements. After the v33 Saturation refactor, #FFB703 no longer appears as a dimension color anywhere.
 
-### 5.3 AIRSA combined report quadrant colors (NEW in v33)
+### 5.3 AIRSA combined report STATUS_COLORS canonical mapping (Session 40 lock)
 
-For the developmental quadrant map in the Phase 3e frontend (no red/yellow/green allowed; brand-aligned):
+The five AIRSA dual-rater statuses each use a distinct brand color. This mapping is authoritative — it drives the lollipop line color, the heatmap status pill, the priority card status pill, and the Section 5 "skills by status" indicator dots in AirsaCombinedReport.tsx.
 
-- Underestimate: #006D77 (teal)
-- Confirmed strength: #2D6A4F (green)
-- Confirmed gap: #6D6875 (gray)
-- Blind spot: #021F36 (navy)
+- aligned: #006D77 (teal)
+- confirmed_strength: #2D6A4F (green)
+- confirmed_gap: #6D6875 (gray)
+- blind_spot: #021F36 (navy)
+- underestimate: #3C096C (purple)
 
-Sand quadrant fills (#F9F7F1 base) with color tint.
+Dash pattern is preserved on `blind_spot` only. Other statuses use solid lines and chips.
+
+Cross-instrument note: #3C096C is also used as the PTP Purpose dimension color. Contexts never overlap on the same screen, so the reuse is acceptable.
+
+### 5.4 AIRSA lollipop level-zone shading (Session 40 lock)
+
+Three vertical band colors behind the dots in `LollipopChart` only. These three hex values must NOT be used anywhere else in the codebase:
+
+- Foundational (left third): #FCE4D6 (warm peach)
+- Proficient (middle third): #D6E8F5 (clear sky blue)
+- Advanced (right third): #D8E8D0 (fresh leaf green-tint)
+
+All three at fillOpacity 0.6. Hardcoded hex literals required in the SVG `fill` attribute (CSS variables do not resolve there).
+
+### 5.5 Quadrant map removed (historical note)
+
+Section 5.3 of v33 documented quadrant map colors. The developmental quadrant section was built in Session 40 and then removed mid-session. Rationale: it duplicated lollipop information in less-readable form. Section count dropped from 15 to 14. The four quadrant labels (Underestimate, Confirmed strength, Confirmed gap, Blind spot) are now visible exclusively through the STATUS_COLORS mapping above.
 
 ## 6. Edits to existing surfaces
 
@@ -309,6 +347,9 @@ Class C: x-dispatcher-secret (departure_dispatcher_shared_secret)
 - GUC opt-out pattern for SECURITY DEFINER UPDATEs that legitimately need to bypass enforce_immutable_user_fields: app.bypass_user_immutable_check, transaction-local
 - NEW (Session 39): When multiple Edge Functions write per-section AI content, use the per-row pattern in facet_interpretations with UNIQUE (assessment_result_id, section_type) and 23505 race-recovery, NOT a JSONB merge on a shared column. The merge approach suffers last-write-wins under fan-out.
 - NEW (Session 39): Constant-time secret comparison via `safeEqual` for `x-internal-secret` validation in Class B and hybrid auth, not direct string equality. Inlined per Edge Function via _shared/secrets.ts pattern.
+- NEW (Session 40): SVG `fill` attribute does NOT resolve CSS variables in production browsers. `fill="var(--bw-cream)"` evaluates to nothing and the shape doesn't render. Use either hardcoded hex literals (`fill="#F9F7F1"`) or the inline `style={{ fill: "var(--bw-cream)" }}` form. The lollipop level-zone bands surfaced this during debugging.
+- NEW (Session 40): React Rules of Hooks violations cause silent blank pages in production builds (no visible error, just an empty render tree because there's no error boundary above the failing component). Diagnostic signature: console shows minified React error #310 ("Rendered more hooks than during the previous render"). Mechanism: any hook placed AFTER an early return causes hook-count mismatch between renders. Mitigation: ALL hook calls (useState, useEffect, useMemo, useRef, useCallback) must appear at the top of a component body, BEFORE any `if (loading || !data) return ...` guard. Verified via the Phase 3e frontend `prioritySkillNumbers` useMemo bug.
+- NEW (Session 40): When passing computed Sets/Maps from a parent component into a memoized child, derive them via useMemo with the underlying data object as the dependency. Source the data via optional chaining (`data?.sections?.foo?.bar`) so the useMemo can run unconditionally before the loading guard fires. The dependency array on `[data]` is correct even though `data` changes only at fetch boundaries.
 
 ## 9. Test fixtures
 
