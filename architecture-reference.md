@@ -1,25 +1,25 @@
 # BrainWise System Architecture Reference
 
-*v32 - Session 38 closeout (Phase 3b shipped, production hot-fix, brand color update)*
+*v33 - Session 39 closeout (Phase 3e backend shipped, AI section generators live)*
 
 ## 1. Overview
 
-This reference captures the canonical system architecture for the BrainWise platform as of Session 38 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), and Phase 3b (self-rater post-submit experience) are shipped to production and verified. Phase 3c through 3e (frontend) and Phases 4 through 8 (PDF, dashboard, edge cases) are scoped in the Session Handoff and ready for execution.
+This reference captures the canonical system architecture for the BrainWise platform as of Session 39 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), and Phase 3e backend (AI section generators) are shipped to production and verified. Phase 3c and 3d (manager-rating frontend) carry forward from Session 38; Phase 3e frontend (15-section combined report) is the next launch-blocking deliverable.
 
-A production hot-fix shipped in Session 38 unblocked corporate invitation redemption, which had been silently failing since 2026-04-09. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color alignment is queued (next Lovable prompt).
+A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. The complete brand color map is below in Section 5.
 
 ## 2. AIRSA dual-rater workflow - current state
 
 ### 2.1 State machine
 
-AIRSA dual-rater is a paired-assessment workflow. A self-rater completes their AIRSA, which automatically creates a paired manager assessment row pointed at their supervisor. The supervisor takes the manager rating; once both legs complete, a combined results row is generated with self-manager divergence calculated.
+AIRSA dual-rater is a paired-assessment workflow. A self-rater completes their AIRSA, which automatically creates a paired manager assessment row pointed at their supervisor. The supervisor takes the manager rating; once both legs complete, a combined results row is generated with self-manager divergence calculated, and AI section generators fan out to populate facet_interpretations rows.
 
 Both legs of the pair use instrument_id = INST-003. The legs differ on rater_type (lowercase 'self' vs 'manager') and on which user_id is the rater versus the target_user_id.
 
 Status flow per leg:
 
-- Self leg: in_progress -> completed (created when user starts AIRSA, set to completed by calculate-scores when user submits)
-- Manager leg: pending -> in_progress -> completed (pending set at row creation by trigger; in_progress when supervisor opens; completed when supervisor submits)
+- Self leg: in_progress -> completed
+- Manager leg: pending -> in_progress -> completed
 
 ### 2.2 Database schema additions to assessments
 
@@ -29,33 +29,35 @@ Status flow per leg:
 - self_only_released_at (timestamptz, nullable) - set when self-rater clicks Release self-only after 14d timeout
 - status CHECK constraint extended to allow 'pending'
 
-Indexes added: idx_assessments_paired_assessment_id (for fast pair lookup), idx_assessments_target_user_status (for the supervisor's pending-manager queries).
+Indexes: idx_assessments_paired_assessment_id, idx_assessments_target_user_status.
 
 ### 2.3 Database schema additions to assessment_results
 
-- UNIQUE constraint added on assessment_results.assessment_id (name: assessment_results_assessment_id_unique). Required for ON CONFLICT upsert in calculate-scores combined-result merge.
+- UNIQUE constraint on assessment_results.assessment_id (name: assessment_results_assessment_id_unique). Required for ON CONFLICT upsert in calculate-scores combined-result merge.
+- skill_level_breakdown JSONB column (NEW in v33). Populated by calculate-scores Branch A. Shape: keyed by item_number string; each value contains skill_number, skill_name, skill_description, dimension_id, domain_name, self_level, manager_level, self_response, manager_response, delta, direction, status. Partial index where instrument_id = 'INST-003'.
 
-manager_dimension_scores and self_manager_divergence columns already existed; they are now populated by Branch A of calculate-scores.
+manager_dimension_scores and self_manager_divergence columns already existed; they are now populated by Branch A. self_manager_divergence per-dimension entries now include a `status` field (NEW in v33) with values aligned, confirmed_strength, confirmed_gap, blind_spot, underestimate.
 
-### 2.4 Schema convention warning - CRITICAL FOR PHASE 3c/3d
+NOTE: an `airsa_report_sections` JSONB column was briefly added and then dropped during Session 39 after a concurrency-design pivot. AI section content lives in facet_interpretations (Section 2.11), not on this table.
+
+### 2.4 Schema convention warning
 
 rater_type case sensitivity is split across the schema. items.rater_type uses CAPITAL-S 'Self' and CAPITAL-M 'Manager'. assessments.rater_type uses LOWERCASE 'self' and 'manager' (per the assessments_rater_type_check CHECK constraint). All Phase 2 backend code conforms to the assessments lowercase convention. Phase 3 frontend code that loads items for the supervisor's rating flow must use capital-M 'Manager' when querying the items table. Cross-table joins on rater_type WILL FAIL silently because of the case mismatch. Always normalize at the boundary.
 
 ### 2.5 Pair-creation trigger
 
-Function: public.create_airsa_manager_pair_on_self_complete (SECURITY DEFINER, search_path = public)
-
-Trigger: on_airsa_self_completed_create_pair, AFTER UPDATE on assessments, FOR EACH ROW
+Function: public.create_airsa_manager_pair_on_self_complete (SECURITY DEFINER, search_path = public).
+Trigger: on_airsa_self_completed_create_pair, AFTER UPDATE on assessments, FOR EACH ROW.
 
 Logic, in order:
 
 - Skip if not AIRSA, not self rater_type, not flipping to completed, or already completed (idempotent)
 - Look up self-rater's supervisor_user_id; if null, skip pair creation (assessment proceeds solo)
 - Validate supervisor: must be active and in same org as self-rater; otherwise skip
-- Idempotency guard: skip if a paired manager row already exists for this self assessment
+- Idempotency guard: skip if a paired manager row already exists
 - INSERT manager assessment row: user_id = supervisor, target_user_id = self-rater, rater_type = 'manager', status = 'pending'
 - UPDATE self assessment row to set its paired_assessment_id reciprocally
-- Fire async pg_net.http_post to airsa-supervisor-invite Edge Function with the new manager_assessment_id, using INTERNAL_FUNCTION_SECRET from vault.decrypted_secrets
+- Fire async pg_net.http_post to airsa-supervisor-invite Edge Function
 
 All exception paths use RAISE WARNING and RETURN NEW. The trigger never blocks the parent transaction.
 
@@ -70,15 +72,13 @@ New policy expression:
 OR (instrument_id = 'INST-003' AND ordered_by_coach_id = auth.uid())
 ```
 
-Effect: non-AIRSA behavior is preserved exactly. For AIRSA, the target_user_id read path is removed; supervisors read their manager assessment via 'users read their own' (user_id = auth.uid()). Self-rater never reads the manager row metadata.
-
-To allow the self-rater to read minimal paired-manager metadata (status, reminder_count, last_reminder_sent_at) for the awaiting-state UI, the airsa_get_my_paired_manager_status RPC was added (see 2.8).
+Effect: non-AIRSA behavior preserved. For AIRSA, the target_user_id read path is removed; supervisors read their manager assessment via 'users read their own' (user_id = auth.uid()). Self-rater never reads the manager row metadata.
 
 ### 2.7 Combined-results gate RPC
 
 public.airsa_can_generate_combined_result(p_self_assessment_id uuid)
 
-Returns: out_can_generate, out_mode ('combined' | 'self_only' | 'blocked'), out_reason, plus context fields
+Returns: out_can_generate, out_mode ('combined' | 'self_only' | 'blocked'), out_reason, plus context fields.
 
 Decision tree:
 
@@ -91,117 +91,142 @@ Decision tree:
 
 calculate-scores invokes this gate before deciding what to write to assessment_results.
 
-### 2.8 RPCs (all SECURITY DEFINER, GRANT EXECUTE TO authenticated)
+### 2.8 RPCs (all SECURITY DEFINER, GRANT EXECUTE TO authenticated unless noted)
 
 - airsa_can_generate_combined_result(uuid) - the gate (see 2.7)
-- airsa_release_self_only(uuid) - self-rater triggers self-only release after 14 days. Idempotent, returns existing release timestamp if already released. Errors: 22023 if not yet 14 days, if manager has completed, if not AIRSA Self, if not the caller's own assessment. Errors: 42501 if not the self-rater.
-- airsa_send_reminder(uuid) - self-rater triggers reminder email to supervisor. 72-hour server-side cooldown. Returns supervisor email payload for the frontend or Edge Function to forward to Resend. Increments reminder_count, sets last_reminder_sent_at.
-- airsa_request_rerate(uuid) - 90-day cooldown. Marks any in-progress paired manager as 'abandoned', creates fresh self assessment in_progress, returns out_manager_in_progress_discarded boolean. Frontend must show confirmation dialog when this is true.
-- my_pending_manager_assessments() - returns supervisor's own pending or in_progress manager assessments with paired self details. Used for the supervisor's pending cards on /assessment.
-- my_direct_reports_with_pending_ratings() - returns all direct reports of caller plus their AIRSA cycle status. Used for the My Team page (Phase 3 will decide whether to add this surface or wait for v2).
-- airsa_get_my_paired_manager_status(uuid) - NEW in Session 38. Self-rater calls this to read minimal paired-manager metadata for the awaiting-state UI on /my-results. Returns paired_assessment_id, paired_status, reminder_count, last_reminder_sent_at. Authorization: caller must equal user_id on the self assessment passed in. Closes the RLS gap created when the manager-side target_user_id read path was removed in 2.6.
+- airsa_release_self_only(uuid) - 14-day timeout self-only release
+- airsa_send_reminder(uuid) - reminder with 72-hour cooldown
+- airsa_request_rerate(uuid) - 90-day cooldown re-take
+- my_pending_manager_assessments() - supervisor's pending cards on /assessment
+- my_direct_reports_with_pending_ratings() - direct reports + AIRSA cycle status
+- airsa_get_my_paired_manager_status(uuid) - self-rater reads minimal paired-manager metadata for awaiting-state UI; closes the RLS gap from 2.6
+- airsa_get_paired_self_rater_name(uuid) - manager-side minimum-disclosure RPC for paired-name read by corporate_employee role
 
-### 2.9 Edge Functions
+### 2.9 Edge Functions (rater-flow)
 
 airsa-supervisor-invite v2 (Class B, INTERNAL_FUNCTION_SECRET gated)
 
 - Triggered by: pg_net call from create_airsa_manager_pair_on_self_complete
 - Input: { manager_assessment_id }
-- Action: looks up supervisor + self-rater + org name, builds branded HTML email, forwards to send-email
-- Returns: { success, sent_to, manager_assessment_id }
-- v2 update (Session 38): rewrote the 'How this works' body to honest framing - removes language that overpromised what the supervisor would see and clarifies the reciprocal nature of the rating
+- Action: builds branded HTML email, forwards to send-email
 
-airsa-supervisor-reminder v2 (Class A, JWT-required, self-rater authorization check)
+airsa-supervisor-reminder v2 (Class A, JWT-required)
 
 - Triggered by: frontend after airsa_send_reminder RPC succeeds
 - Input: { manager_assessment_id }
-- Authorization: caller must equal target_user_id on the manager assessment (i.e. the self-rater)
-- Returns 403 if caller is not the self-rater
-- Returns 400 if manager already completed
-- v2 update (Session 38): same body rewrite as airsa-supervisor-invite
+- Authorization: caller must equal target_user_id on the manager assessment
 
-Both functions deployed with verify_jwt: false (consistent with the rest of this codebase, which validates JWT inside function bodies via auth.getClaims).
+Both deployed with verify_jwt: false (consistent with codebase; validation happens inside function bodies via auth.getClaims).
 
-### 2.10 calculate-scores - enhanced in Phase 3a (v40)
+### 2.10 calculate-scores - v42 (Phase 3e fan-out wired)
 
-The function now contains three explicit branches:
+Three explicit branches:
 
-Branch A: AIRSA Manager submission. Loads paired self assessment + responses; computes self dimension scores using the AIRSA mostCommonReadiness logic; computes manager dimension scores; computes self-manager divergence per dimension as { self_level, manager_level, delta, direction }; UPSERTS the assessment_results row keyed by SELF assessment_id (using the new UNIQUE constraint) with manager_dimension_scores and self_manager_divergence populated; flips manager assessment to completed; triggers generate-report fire-and-forget.
+Branch A: AIRSA Manager submission. Loads paired self assessment + responses; computes self dimension scores; computes manager dimension scores; computes self-manager divergence with status field; computes skill_level_breakdown by joining assessment_responses self+manager with airsa_skills with dimensions; UPSERTs the assessment_results row keyed by SELF assessment_id with manager_dimension_scores, self_manager_divergence, and skill_level_breakdown populated; flips manager assessment to completed; triggers generate-report fire-and-forget (legacy narrative path) and ALSO triggers all six AIRSA AI section generators in parallel via fire-and-forget (Phase 3e fan-out).
 
-Branch B: AIRSA Self submission. Flips self to completed; calls the gate; if 'blocked', returns { mode: 'awaiting_manager' } with no results row written; if 'self_only', upserts results row with no manager fields, triggers generate-report. If 'combined' returns on a Self submission, defensively treated as self_only with a logged warning (this state should not occur because manager cannot complete before self).
+Branch B: AIRSA Self submission. Flips self to completed; calls the gate; if 'blocked' returns awaiting_manager with no results row written; if 'self_only', upserts results row with no manager fields and triggers generate-report.
 
-Branch C: All non-AIRSA paths. Preserved byte-for-byte from the prior version. PTP, NAI, HSS, EPN scoring is unchanged.
+Branch C: All non-AIRSA paths. Preserved byte-for-byte from prior versions.
 
-Detection note: the function adds a correct AIRSA detection (isAirsaCorrect = instrument_id === 'INST-003') and uses it in the dimension-scoring conditional ALONGSIDE the legacy isAIRSA prefix-startsWith check. The legacy check is preserved (always false in practice) to avoid changing PTP/NAI/HSS code paths.
+Detection: `isAirsaCorrect = instrument_id === 'INST-003'` drives all AIRSA branching. Legacy isAIRSA prefix check preserved (always false in practice) to avoid changing PTP/NAI/HSS code paths.
 
-KNOWN BUG (Session 38): Branch B re-stamps completed_at on the self-only release path. This causes the 90-day re-take cooldown to anchor from the release date instead of the original self-completion date. Fix scoped to Phase 3e or earlier hot-fix. See Build Queue BUG-5.
+KNOWN BUG: Branch B re-stamps completed_at on the self-only release path. See Build Queue BUG-5.
 
-## 3. Frontend - Phase 3b shipped (NEW IN v32)
+### 2.11 AI section generators (NEW in v33) - storage, auth, and orchestration
 
-### 3.1 /my-results AIRSA awaiting-state
+Six Edge Functions, one per section. Storage shared with existing PTP/NAI AI content via the facet_interpretations table.
 
-When the gate returns 'blocked' (self completed, manager not yet completed, no self-only release), the AIRSA tile in the user's results list renders in awaiting state at 0.7 opacity. The main panel area shows an awaiting card explaining the workflow status.
+Functions:
 
-State branches by elapsed time since self.completed_at:
+- generate-airsa-profile-overview v5 - section_type airsa_profile_overview, plain text, 800 max_tokens
+- generate-airsa-what-this-means v3 - section_type airsa_what_this_means, JSON 4-key object, 2000 max_tokens
+- generate-airsa-action-plan v3 - section_type airsa_action_plan, JSON 3-key object, 600 max_tokens
+- generate-airsa-conversation-guide v3 - section_type airsa_conversation_guide, JSON 3-key object, 600 max_tokens
+- generate-airsa-top-priorities v2 - section_type airsa_top_priorities, JSON array of 3 objects, 1500 max_tokens
+- generate-airsa-cross-instrument v2 - section_type airsa_cross_instrument, plain text, 1200 max_tokens, conditional
 
-- 0-13 days: awaiting card only, no action buttons. Body explains supervisor has been notified.
-- 14-89 days: awaiting card + 'Send Reminder' button (if cooldown not active) + 'Release Self-Only Report' button. Reminder click hits airsa_send_reminder RPC, then airsa-supervisor-reminder Edge Function. Release click confirms then hits airsa_release_self_only RPC.
-- 90+ days: awaiting card + Re-take button. Click triggers confirmation dialog warning that any in-progress manager rating will be discarded. Confirm hits airsa_request_rerate RPC.
+Orchestration: calculate-scores Branch A fires all six in parallel via fire-and-forget HTTP POST with `x-internal-secret`. Each writes its own facet_interpretations row keyed by (assessment_result_id, section_type) UNIQUE. Frontend reads all rows in a single SELECT WHERE assessment_result_id = ? AND section_type LIKE 'airsa_%'.
 
-Awaiting state polls airsa_get_my_paired_manager_status periodically with early-exit logic if status changes to completed mid-poll.
+Storage row shape (facet_data JSONB):
 
-### 3.2 Self-rater frontend data path
+- For plain-text sections: { content: "<text>", ai_version, model }
+- For JSON-object sections: { content: { ...keys }, ai_version, model }
+- For array sections: { content: [...], ai_version, model }
+- For cross-instrument with PTP/NAI present: { content, ai_version, model, has_ptp, has_nai }
 
-The self-rater cannot read the manager assessment row directly (RLS blocks via the policy in 2.6). The awaiting-state UI gets its data exclusively through airsa_get_my_paired_manager_status RPC, which is SECURITY DEFINER and authorizes the caller as the self-rater on the passed self_assessment_id.
+Auth model (per function): hybrid Class A + Class B. Internal secret with constant-time `safeEqual` comparison for service-to-service calls (calculate-scores Branch A, pg_net tests). User JWT via auth.getClaims for frontend calls, with ownership check against assessment_results.user_id and AIRSA-only gate (instrument_id === 'INST-003').
 
-## 4. Production hot-fix: corporate invitation redemption (NEW IN v32)
+Cache discipline: each function checks for an existing row first. Returns cached content with no AI call if present and force_regenerate flag is not set. Force regenerate path deletes the row before insert. Concurrent same-section calls handled via 23505 unique-violation catch: re-read and return cached.
 
-### 4.1 Bug
+Race-condition fix history: an earlier attempt used a JSONB merge column on assessment_results, which suffered last-write-wins overwrites under parallel fan-out. A SECURITY DEFINER atomic-merge RPC was tried as a fix, then dropped. The current per-row pattern in facet_interpretations is the canonical solution and matches PTP/NAI precedent.
 
-A new user redeeming a corporate invitation hit a 22023 error: "User without organization cannot have a department".
+Cross-instrument skip behavior: when the user has neither PTP (INST-001) nor NAI (INST-002) results, the function returns success with skipped=true and writes NO row. Frontend treats absence of the row as "show unlock CTA". This mirrors the existing facet_interpretations convention where missing rows render empty.
 
-### 4.2 Root cause
+Output discipline (all six functions):
 
-The enforce_immutable_user_fields trigger (BEFORE UPDATE on public.users) reads auth.uid() of the caller, looks up the caller's account_type and organization_id from public.users, and clobbers NEW.organization_id and NEW.account_type if the caller is a regular user (not super_admin or service_role).
+- Reference skills by NUMBER only ("Skill 7"), never by name. Frontend post-processor wraps "Skill N" mentions with hover-tooltip components reading from skill_level_breakdown.
+- BANNED words in AI output: fascinating, valuable, interesting, exciting, striking, remarkable, dynamic, masking
+- BANNED phrases: "this creates", "this suggests you", "may be masking", "valuable calibration"
+- No em-dashes
+- Domain names used in prose, never dimension IDs
+- Model: claude-sonnet-4-20250514 across all six
 
-For a fresh invitation redemption, auth.uid() is the new user themselves, who has not yet been assigned an organization_id. The trigger looks up its own row, finds account_type and organization_id both NULL, falls into the ELSE branch, and clobbers NEW.organization_id := OLD.organization_id (also NULL). Then enforce_user_department_same_org sees department_id non-null with organization_id NULL and raises 22023.
+Shared utilities (inlined per function deploy because Edge Functions deploy per-folder):
 
-The trigger had existed since 2026-04-09. The invitation_redeem RPC was therefore broken for first-time corporate invitees from that date forward, with two anomalous successes on 2026-04-18 (logged in Build Queue for investigation; mechanism unknown).
+- _shared/secrets.ts: `safeEqual` constant-time comparison (SOC 2 CC6.1)
+- _shared/errors.ts: `serverError` sanitized 5xx (SOC 2 CC7.2)
 
-### 4.3 Fix
+### 2.12 airsa_skills reference table (NEW in v33)
 
-Migration: fix_invitation_redeem_immutable_fields_bypass.
+Static lookup table seeded from the canonical AI Readiness Skills Profile source document (24 skills across 8 domains).
 
-Pattern: GUC opt-out scoped to the invitation_redeem RPC only.
+Schema:
 
-- Added: enforce_immutable_user_fields trigger now reads current_setting('app.bypass_user_immutable_check', true). If 't', the trigger short-circuits and returns NEW unchanged.
-- Modified: invitation_redeem RPC body sets the GUC transaction-locally via set_config('app.bypass_user_immutable_check', 't', true) before its UPDATE on public.users.
+- item_number INTEGER PRIMARY KEY
+- dimension_id TEXT NOT NULL FK -> dimensions.dimension_id (UNIQUE constraint required for FK)
+- skill_name TEXT NOT NULL
+- short_description TEXT NOT NULL
+- full_definition TEXT NOT NULL
+- theoretical_basis TEXT
+- behavioral_indicators JSONB
+- is_new_skill BOOLEAN NOT NULL DEFAULT false (true for skills 10, 17, 22)
+- primary_p TEXT CHECK (Protection|Participation|Prediction|Purpose|Pleasure)
+- secondary_ps JSONB
+- created_at, updated_at with updated_at trigger
 
-Defense-in-depth: the existing 'users: update own safe fields' RLS policy with WITH CHECK clause prevents misuse of the GUC opt-out for unauthorized field changes. SOC 2 CC6.1 / CC6.3 / CC7.2 compliant.
+RLS: read-only authenticated. No writes from app code.
 
-Verified non-impact paths: individual signup, coach signup, coach client signup, corporate->individual conversion, supervisor reconciliation. None hit this code path.
+Distribution verified: 24 total rows, 3 with is_new_skill = true (10, 17, 22), domain coverage D1=3 D2=3 D3=4 D4=3 D5=4 D6=2 D7=2 D8=3, primary_p coverage Protection=5 Participation=5 Prediction=6 Purpose=3 Pleasure=5.
 
-Audit follow-up logged in Build Queue: enumerate other SECURITY DEFINER functions that UPDATE public.users to ensure no other path is silently affected by the immutable-fields trigger.
+Used by: calculate-scores Branch A (joins to build skill_level_breakdown); the 6 AI section generators (read indirectly through skill_level_breakdown which already contains the denormalized skill metadata).
 
-## 5. Brand color updates
+## 3. Frontend - Phase 3b shipped, Phase 3e frontend pending
 
-### 5.1 PTP Pleasure (DIM-PTP-05): yellow #FFB703 -> forest green #2D6A4F
+### 3.1 /my-results AIRSA awaiting-state (shipped Session 38)
 
-Locked decision and shipped via Lovable refactor in Session 38. Files updated: src/pages/MyResults.tsx, src/pages/company/PTPDashboard.tsx, src/pages/company/CompanyDashboard.tsx (three PTP color maps: PTP_DIM_COLORS, PTP_COLORS_LOCAL, PTP_COLORS_CO), src/lib/generateResultsPdf.ts, src/lib/generatePTPDashboardPdf.ts, src/lib/assemblePdfDataForUser.ts, src/components/results/PTPNarrativeSections.tsx, src/components/results/PTPFullFacetCharts.tsx, src/components/results/DrivingFacetScores.tsx.
+Awaiting state polls airsa_get_my_paired_manager_status periodically with early-exit when status changes to completed mid-poll. Time-based UI:
 
-Pastel/tint companion colors updated to green tints in same files.
+- 0-13 days: awaiting card only
+- 14-89 days: awaiting card + Send Reminder + Release Self-Only
+- 90+ days: awaiting card + Re-take confirmation dialog
 
-The CSS token --bw-amber: #FFB703 in src/index.css and src/styles/marketing-tokens.css was NOT changed. It remains the brand palette yellow used by the --warning semantic token and other UI elements.
+### 3.2 Self-rater frontend data path (shipped Session 38)
 
-### 5.2 NAI Saturation (DIM-NAI-05): yellow #FFB703 -> mustard #7a5800 (PENDING)
+The self-rater cannot read the manager assessment row directly (RLS blocks via 2.6). The awaiting-state UI gets data exclusively through airsa_get_my_paired_manager_status RPC.
 
-Locked decision in Session 38. Shipping in Session 39 via Lovable. Aligns NAI individual report files (MyResults.tsx, NAINarrativeSections.tsx) with the dashboard color (CompanyDashboard.tsx, PTPDashboard.tsx) which were already at #7a5800.
+### 3.3 Combined report frontend (PENDING - Session 40 launch-blocking)
 
-Rationale: the dashboard color is almost certainly an accessibility-driven correction that didn't propagate to the individual report or the architecture brand-color spec. After this ships, #FFB703 will exist only as the --bw-amber brand token, no longer as a dimension color anywhere in the app.
+15-section AirsaCombinedReport.tsx layout, full spec in Build Queue Phase 3e frontend section. Reads assessment_results.skill_level_breakdown plus all facet_interpretations rows where section_type LIKE 'airsa_%' in a single fetch on mount. Loading skeletons per section while AI fan-out is still completing.
 
-### 5.3 Updated brand color lock
+## 4. Production hot-fix: corporate invitation redemption (carried from v32)
 
-The complete dimension color map after both refactors complete:
+GUC opt-out pattern: `app.bypass_user_immutable_check`, set transaction-locally via set_config(name, value, true) inside the invitation_redeem RPC body. The enforce_immutable_user_fields trigger reads current_setting(name, true) and short-circuits if 't'. Defense-in-depth via the users-update-own-safe-fields RLS WITH CHECK clause. SOC 2 CC6.1 / CC6.3 / CC7.2 compliant.
+
+Audit follow-up logged in Build Queue (BUG-7): enumerate other SECURITY DEFINER functions that UPDATE public.users.
+
+## 5. Brand color complete map
+
+### 5.1 Locked dimension color assignments
 
 PTP dimensions:
 
@@ -209,7 +234,7 @@ PTP dimensions:
 - Participation: #006D77 (teal)
 - Prediction: #6D6875 (slate gray)
 - Purpose: #3C096C (plum/purple)
-- Pleasure: #2D6A4F (forest green)  [updated v32]
+- Pleasure: #2D6A4F (forest green)
 
 NAI dimensions:
 
@@ -217,11 +242,29 @@ NAI dimensions:
 - Agency: #F5741A (orange)
 - Fairness: #006D77 (teal)
 - Ego Stability: #3C096C (plum/purple)
-- Saturation: #7a5800 (mustard)  [pending v32 -> v33]
+- Saturation: #7a5800 (mustard)
 
-Instrument-level colors (unchanged): AIRSA forest #2D6A4F primary; HSS gray #6D6875.
+Instrument-level:
 
-## 6. Edit to existing surfaces (Session 37 carry-forward)
+- AIRSA primary: #2D6A4F (forest green)
+- HSS primary: #6D6875 (slate gray)
+
+### 5.2 Brand tokens preserved
+
+The CSS token --bw-amber: #FFB703 in src/index.css and src/styles/marketing-tokens.css is preserved. It remains the brand palette yellow used by the --warning semantic token and other UI elements. After the v33 Saturation refactor, #FFB703 no longer appears as a dimension color anywhere.
+
+### 5.3 AIRSA combined report quadrant colors (NEW in v33)
+
+For the developmental quadrant map in the Phase 3e frontend (no red/yellow/green allowed; brand-aligned):
+
+- Underestimate: #006D77 (teal)
+- Confirmed strength: #2D6A4F (green)
+- Confirmed gap: #6D6875 (gray)
+- Blind spot: #021F36 (navy)
+
+Sand quadrant fills (#F9F7F1 base) with color tint.
+
+## 6. Edits to existing surfaces
 
 ### 6.1 marketing-tokens.css
 
@@ -233,34 +276,29 @@ Two semantic alias tokens added in Session 37 after the existing --success/--war
 
 The brand uses orange (not red) for danger states. App-side index.css does NOT mirror these aliases yet (see Build Queue: semantic-token reconciliation).
 
-### 6.2 AdminUsers.tsx (admin user management page)
+### 6.2 AdminUsers.tsx
 
-Phase 1 work added two banners above the Users tab Card showing supervisor health:
+Two banners above the Users tab Card showing supervisor health (no supervisor assigned, deactivated supervisor). Each has a Review button that filters the user table.
 
-- 'X users have no supervisor assigned' - amber accent (var(--bw-amber)), cream background
-- 'X users have a deactivated supervisor' - orange-700 accent (var(--bw-orange-700)), light orange background
-
-Each banner has a Review button that filters the user table to that subset. Mutually exclusive filters. Filter indicator badge with clear-X inside the Card.
-
-## 7. Three-tier Edge Function auth model (locked, recap)
+## 7. Three-tier Edge Function auth model
 
 Class A: JWT via auth.getClaims (user context, frontend-callable)
 
-- Used by: airsa-supervisor-reminder v2, calculate-scores, invitation_send, etc.
+- Used by: airsa-supervisor-reminder v2, calculate-scores, invitation_send
 
-Class B: X-Internal-Secret (or x-internal-secret header, value INTERNAL_FUNCTION_SECRET from Edge Function Secrets)
+Class B: x-internal-secret header (value INTERNAL_FUNCTION_SECRET from Edge Function Secrets, validated with constant-time `safeEqual` comparison)
 
 - Used by: airsa-supervisor-invite v2, send-email, generate-report
-- Service-to-service authentication; never callable from browser
+- The 6 AIRSA AI section generators support BOTH Class A and Class B (hybrid) on the same function
 
-Class C: X-Dispatcher-Secret (departure_dispatcher_shared_secret)
+Class C: x-dispatcher-secret (departure_dispatcher_shared_secret)
 
 - Used by: pg_cron entry points only
 - Currently: dispatch_grace_reminders_daily, sync_stripe_prices_daily
 
-## 8. Locked architectural constraints (unchanged this session, except as noted)
+## 8. Locked architectural constraints
 
-- Two sequential Anthropic Opus calls cannot be bundled in one Edge Function (Supabase 150-second timeout)
+- Two sequential Anthropic Opus calls cannot be bundled in one Edge Function (Supabase 150-second timeout). Phase 3e splits this into 6 separate functions with frontend parallel fan-out.
 - auth.getClaims is the canonical JWT verification method; not getUser, not local decode
 - After every apply_migration via MCP, run a separate execute_sql verification query
 - Multi-statement execute_sql returns only the last statement's result; split intermediate checks
@@ -268,16 +306,24 @@ Class C: X-Dispatcher-Secret (departure_dispatcher_shared_secret)
 - get_edge_function returns full source and is reliable for pre-patch audits
 - deploy_edge_function requires complete file content; always preserve verify_jwt: false explicitly
 - Before generating values for an existing table, query pg_constraint for CHECK rules. Reading information_schema.columns is not sufficient.
-- NEW (Session 38) GUC opt-out pattern for SECURITY DEFINER UPDATEs that legitimately need to bypass enforce_immutable_user_fields: app.bypass_user_immutable_check, set transaction-locally via set_config(name, value, true) inside the RPC body. The trigger reads current_setting(name, true) and short-circuits if 't'. Defense-in-depth via the users-update-own-safe-fields RLS WITH CHECK clause.
+- GUC opt-out pattern for SECURITY DEFINER UPDATEs that legitimately need to bypass enforce_immutable_user_fields: app.bypass_user_immutable_check, transaction-local
+- NEW (Session 39): When multiple Edge Functions write per-section AI content, use the per-row pattern in facet_interpretations with UNIQUE (assessment_result_id, section_type) and 23505 race-recovery, NOT a JSONB merge on a shared column. The merge approach suffers last-write-wins under fan-out.
+- NEW (Session 39): Constant-time secret comparison via `safeEqual` for `x-internal-secret` validation in Class B and hybrid auth, not direct string equality. Inlined per Edge Function via _shared/secrets.ts pattern.
 
 ## 9. Test fixtures
 
-Test org name: BrainWise Test Corp. Test user emails follow the testclientbwe+role@gmail.com pattern (orgmember, supervisor, employee). Specific UUIDs and the test password are NOT stored in this public repo. Look them up at session start by:
+Test org name: BrainWise Test Corp.
+
+Test user emails follow the testclientbwe+role@gmail.com pattern (orgmember, supervisor, employee). Specific UUIDs and the test password are NOT stored in this public repo. Look them up at session start by:
 
 - Querying Supabase via MCP for users where email matches the testclientbwe+ pattern
-- Reading the test password from Claude's userMemories block (always present)
+- Reading the test password from Claude's userMemories block
 - If neither is available, ask the user
 
-The Phase 3b verification fixture is documented in the Session 38 to 39 handoff (test users, AIRSA assessment IDs, fixture state). When Phase 3c, 3d, or 3e begin in Session 39, look up the current state via Supabase rather than relying on the values written here at Session 38 close.
+Session 39 fixture state at close:
 
-The .test TLD is no longer used by the canonical fixture (replaced by gmail+ aliases for real deliverable email during Session 38 Phase 3b verification).
+- Test users renamed to Maya Employee (the self-rater) and David Supervisor (the manager-rater) so first-name extraction is testable in AI output. Production code does not hardcode these names; they are pulled from users.full_name and split on first space.
+- AIRSA self assessment, manager assessment, and combined assessment_result row exist for the fixture.
+- All six facet_interpretations rows for sections airsa_profile_overview, airsa_what_this_means, airsa_action_plan, airsa_conversation_guide, and airsa_top_priorities are populated; airsa_cross_instrument is NOT (Maya has no PTP/NAI, so the function correctly skips and writes no row).
+
+When Session 40 begins, look up the current state via Supabase rather than relying on values written here at Session 39 close.
