@@ -1,12 +1,12 @@
 # BrainWise System Architecture Reference
 
-*v35 - Session 41 closeout (Phase 4 PDF export shipped; Phase 5 strategic frame locked)*
+*v36 - Session 42 closeout (Phase 5a backend recon complete; AIRSA fixture seeded)*
 
 ## 1. Overview
 
-This reference captures the canonical system architecture for the BrainWise platform as of Session 40 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), and Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report) are all shipped to production and verified. Phase 4 (PDF export) is the next launch-blocking deliverable.
+This reference captures the canonical system architecture for the BrainWise platform as of Session 42 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report), and Phase 4 (PDF export) are all shipped to production and verified. Phase 5a backend recon is complete; the RPC + Edge Function build is the next launch-blocking deliverable.
 
-A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. Phase 3e frontend shipped via AirsaCombinedReport.tsx in Session 40 with multiple visual polish iterations. The complete brand color map and the AIRSA STATUS_COLORS canonical mapping are in Section 5.
+A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. Phase 3e frontend shipped via AirsaCombinedReport.tsx in Session 40 with multiple visual polish iterations. Phase 4 PDF export shipped in Session 41. Phase 5a backend recon completed and AIRSA test fixture seeded in Session 42 (47 pairs total in production, org-wide TCI = 40.1). The complete brand color map and the AIRSA STATUS_COLORS canonical mapping are in Section 5.
 
 ## 2. AIRSA dual-rater workflow - current state
 
@@ -200,6 +200,10 @@ Distribution verified: 24 total rows, 3 with is_new_skill = true (10, 17, 22), d
 
 Used by: calculate-scores Branch A (joins to build skill_level_breakdown); the 6 AI section generators (read indirectly through skill_level_breakdown which already contains the denormalized skill metadata).
 
+### 2.13 AIRSA scale labels (Session 42 lock)
+
+AIRSA frequency scale: `0=Never, 1=Rarely, 2=Often, 3=Consistently`. NOT "Always". Items table values verified during Session 42 fixture seeding. Frontend, PDF, and AI prompts must all use this exact labeling. Any drift to "Always" in copy is a bug.
+
 ## 3. Frontend - Phase 3b through Phase 3e shipped
 
 ### 3.1 /my-results AIRSA awaiting-state (shipped Session 38)
@@ -357,6 +361,7 @@ Two banners above the Users tab Card showing supervisor health (no supervisor as
 Class A: JWT via auth.getClaims (user context, frontend-callable)
 
 - Used by: airsa-supervisor-reminder v2, calculate-scores, invitation_send
+- Will be used by: generate-airsa-org-narrative (Phase 5a, mirrors generate-dashboard-narrative v22)
 
 Class B: x-internal-secret header (value INTERNAL_FUNCTION_SECRET from Edge Function Secrets, validated with constant-time `safeEqual` comparison)
 
@@ -387,6 +392,8 @@ Class C: x-dispatcher-secret (departure_dispatcher_shared_secret)
 - NEW (Session 41): jsPDF default helvetica uses WinAnsiEncoding; Unicode glyphs outside that range (★ ◆ etc.) get substituted to an in-range fallback character. Pattern: ASCII-equivalent constants in PDF generators, Unicode glyph in on-screen contexts. See §5.6 rule 1.
 - NEW (Session 41): jsPDF's splitTextToSize uses CURRENT font for width calc; setting font BEFORE the call is mandatory or wrap widths come out wrong. See §5.6 rule 2.
 - NEW (Session 41): When a section heading has a body card whose height is computable upfront, pass that height as the minContentNeeded argument to sectionHeading() to prevent heading orphaning. See §5.6 rule 3.
+- NEW (Session 42): For dashboard-level AI generators that are user-triggered from the frontend (Regenerate AI button), use Class A JWT via auth.getClaims, not Class B internal-secret. The Class B path is reserved for service-to-service calls (e.g., calculate-scores fan-out to individual report generators). Pattern reference: generate-dashboard-narrative v22.
+- NEW (Session 42): When designing org-level aggregations that include a supervisor-rollup view, do NOT add a `'supervisor'` slice_type. The existing `'team'` slice already routes by `supervisor_user_id`. Iterate supervisors INSIDE the RPC body for per-supervisor rollups instead of adding a new slice enum value. This avoids a CHECK constraint migration and keeps slice_type semantics clean.
 
 ## 9. Test fixtures
 
@@ -404,11 +411,11 @@ Session 39 fixture state at close:
 - AIRSA self assessment, manager assessment, and combined assessment_result row exist for the fixture.
 - All six facet_interpretations rows for sections airsa_profile_overview, airsa_what_this_means, airsa_action_plan, airsa_conversation_guide, and airsa_top_priorities are populated; airsa_cross_instrument is NOT (Maya has no PTP/NAI, so the function correctly skips and writes no row).
 
-When Session 40 begins, look up the current state via Supabase rather than relying on values written here at Session 39 close.
+When a new session begins, look up the current state via Supabase rather than relying on values written in prior closeouts. The full Session 42 seed structure is documented in §11.
 
-## 10. AIRSA Company Dashboard design (Session 41 strategic frame, build deferred to Phase 5a/5b)
+## 10. AIRSA Company Dashboard design (Session 41 strategic frame, Session 42 recon-corrected, build deferred to Phase 5a/5b)
 
-The strategic frame for the AIRSA org dashboard is locked. Build is split into Phase 5a backend and Phase 5b frontend per the Phase 3 split precedent. Recon checklist is staged in the Session 41 to 42 handoff.
+The strategic frame for the AIRSA org dashboard is locked. Build is split into Phase 5a backend and Phase 5b frontend per the Phase 3 split precedent. Phase 5a recon completed in Session 42 with four corrections folded into the sections below.
 
 ### 10.1 Central thesis
 
@@ -427,13 +434,13 @@ Three companion sub-metrics in the headline strip: Alignment rate (any same-dire
 
 ### 10.3 Tab structure (5 tabs, mirrors PTP/NAI)
 
-1. **Overview**: persistent header with TCI; slice controls (All / Department / Level / Team / Supervisor — the supervisor slice is AIRSA-new); 4 sub-metric cards; AI Readiness Summary card with top 3 recommended actions; Greatest Growth Opportunities / Strengths to Capitalize paired panels (top 2 skills + top 2 domains per panel, full ranking via expand link); Calibration Map (visual centerpiece); Risk flags.
+1. **Overview**: persistent header with TCI; slice controls (All / Department / Level / Team — Manager Calibration data is computed by iterating supervisors INSIDE the RPC, no `'supervisor'` slice_type); 4 sub-metric cards; **AI workforce narrative inline as expandable card** (top 3 recommended actions surfaced when expanded); Greatest Growth Opportunities / Strengths to Capitalize paired panels (top 2 skills + top 2 domains per panel, full ranking via expand link); Calibration Map (visual centerpiece); Risk flags.
 
 2. **Domains**: 8 domain cards (PTP dimension card pattern). Each card: domain name + colored dot, average self-readiness 3-zone bar, average manager-readiness 3-zone bar, status distribution 5-segment stacked bar using STATUS_COLORS. Click to expand for per-skill breakdown.
 
 3. **Skill Inventory**: sortable filterable table (Skill # | Name | Domain | Self avg | Manager avg | TCI | Blind spot % | Underestimate % | n). Default sort: `cps_growth DESC` ("Sort by growth priority"). Row expand: per-department TCI for that skill, top blind-spot departments, top underestimate departments, AI-generated intervention recommendation.
 
-4. **Manager Calibration** (AIRSA-unique tab, NOT in PTP/NAI): aggregates by `users.supervisor_user_id` chain. Per-manager panel: name, report count, TCI scoped to their reports, blind-spot rate vs underestimate rate (asymmetry signals over-estimator vs under-estimator tendency), calibration consistency. Top 5 best-calibrated / Bottom 5. Privacy threshold: minimum 3 reports per manager.
+4. **Manager Calibration** (AIRSA-unique tab, NOT in PTP/NAI): aggregates by `users.supervisor_user_id` chain, computed inside the RPC. Per-manager panel: name, report count, TCI scoped to their reports, blind-spot rate vs underestimate rate (asymmetry signals over-estimator vs under-estimator tendency), calibration consistency. Top 5 best-calibrated / Bottom 5. Privacy threshold: minimum 3 reports per manager.
 
 5. **Trends + Cross-Instrument**: LineChart of TCI over time (PTP/NAI Trends pattern); PTP × AIRSA and NAI × AIRSA correlations using existing C.A.F.E.S–PTP co-elevation framework.
 
@@ -458,7 +465,7 @@ Priority markers (Session 41 lock): orange ▲ for top 2 growth skills, green �
 
 Match PTP/NAI exactly. Reuse `org_dashboard_narratives` table with `instrument_id = 'INST-003'`. AIRSA-specific aggregates carried in `dimension_scores` JSONB. AI workforce narrative cached in `narrative_text` JSONB. TCI carried in `index_score` numeric column. NO new aggregate table.
 
-May need to add `'supervisor'` to the `slice_type` CHECK constraint values (verify in Phase 5a recon).
+Session 42 recon confirmed: existing `'team'` slice already routes by `supervisor_user_id`. Manager Calibration tab is computed inside the RPC by iterating supervisors with min-3-reports threshold. **No `slice_type` CHECK constraint migration needed. No table migrations needed for Phase 5a.**
 
 Proposed JSONB shape for `dimension_scores`:
 
@@ -484,7 +491,7 @@ Proposed JSONB shape for `dimension_scores`:
 
 ### 10.7 Cadence
 
-Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(organization_id, slice_type, slice_value)` computes aggregates from `assessment_results` on each dashboard load. No nightly cron, no pre-computed aggregate table. AI workforce narrative cached in `org_dashboard_narratives.narrative_text` and regenerated on user-triggered click via new Edge Function `generate-airsa-org-narrative` (Class B internal-secret pattern, mirrors AIRSA individual-level generators).
+Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(p_slice_type, p_slice_value)` computes aggregates from `assessment_results` on each dashboard load. No nightly cron, no pre-computed aggregate table. AI workforce narrative cached in `org_dashboard_narratives.narrative_text` and regenerated on user-triggered click via new Edge Function `generate-airsa-org-narrative` (**Class A JWT** via `auth.getClaims`, mirrors `generate-dashboard-narrative` v22). The Class B path documented in Session 41 was corrected after recon: dashboard-level AI generators are user-triggered from the frontend with full JWT context, matching PTP/NAI cadence. Model: `claude-opus-4-6`, `max_tokens` 7000.
 
 ### 10.8 Privacy thresholds
 
@@ -498,3 +505,62 @@ Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(organization_id, slice_type
 - Time-comparison overlays on Calibration Map (state management complexity; Trends tab handles longitudinal)
 - Anonymous self-report mode (defer until customer asks)
 - Predictive "if you close blind spots in Skill X, expected TCI gain is Y" (requires platform-wide outcome data; Wave 2/3 validation pathway)
+
+## 11. AIRSA test fixture seed (Session 42)
+
+A production-realistic AIRSA test fixture lives on the BrainWise Test Corp organization. Seeded in Session 42 to enable end-to-end validation of the Phase 5a RPC + Edge Function and the Phase 5b dashboard UI before any real customer data exists.
+
+### 11.1 Org structure
+
+BrainWise Test Corp now has 4 departments and 50 corporate employees:
+
+- **Executive**: 5 (5 C-Suite users moved here in Session 42)
+- **Engineering**: 18
+- **Finance**: 14
+- **Marketing**: 13
+
+Supervisor chain: 17 distinct supervisors, with 10+ clearing the Manager Calibration min-3-reports threshold. `users.supervisor_user_id` populated for all corporate_employee rows that have a supervisor.
+
+### 11.2 AIRSA pairs
+
+**47 self+manager assessment pairs** in production (Maya = pair #47 from prior fixture work; 46 pairs new in Session 42).
+
+- 94 `assessments` rows total: 47 self + 47 manager, all `instrument_id = 'INST-003'`, all `status = 'completed'`
+- **2,208 `assessment_responses`**: 46 new pairs × 24 items × 2 raters
+- **46 `assessment_results`** rows with full JSONB derived server-side from responses (no AI calls used during seed):
+  - `dimension_scores` (self per-domain readiness)
+  - `manager_dimension_scores` (manager per-domain readiness)
+  - `self_manager_divergence` (per-domain with `status` field)
+  - `skill_level_breakdown` (24 entries per row, per the §2.3 schema)
+
+The Maya fixture's six `facet_interpretations` rows (AI section content) are unchanged from Session 39 close. The 46 new pairs do NOT have AI section content; they exist for org-level aggregate validation, not individual-report rendering.
+
+### 11.3 Org-level distribution (verified)
+
+Across all 47 AIRSA pairs:
+
+- Org-wide TCI = **40.1**
+- aligned: 24.5%
+- underestimate: 20.7%
+- blind_spot: 20.3%
+- confirmed_gap: 19.0%
+- confirmed_strength: 15.6%
+
+This distribution gives the Phase 5b dashboard a realistic demo: enough alignment to show a working organization, enough divergence in both directions to populate the Calibration Map, and enough confirmed gaps to surface workforce-risk callouts.
+
+### 11.4 Seed mechanics (for reference)
+
+The seed script lived in `/home/claude/internal-docs/` during Session 42 and is not committed. The relevant facts for future sessions:
+
+- All scoring derived server-side. The seed inserts `assessment_responses`, then runs `calculate-scores` Branch A logic (or its SQL equivalent) to produce `assessment_results`. No AI Edge Functions called.
+- AIRSA scale labels confirmed during seed: **`0=Never, 1=Rarely, 2=Often, 3=Consistently`** (NOT "Always"). Items table values verified.
+- Self/manager rater assignments use the **lowercase `'self'`/`'manager'`** convention (per §2.4 schema warning) on the `assessments` table.
+- `paired_assessment_id` reciprocal linkage populated for all 47 pairs.
+
+If the seed needs to be regenerated or extended, mirror the structure: 50 employees, 4 departments, supervisor chain with 17 distinct supervisors, 47+ AIRSA pairs with computed JSONB aggregates.
+
+### 11.5 What the fixture does NOT cover
+
+- AI section content for the 46 new pairs (only Maya has facet_interpretations rows). The Phase 5a `generate-airsa-org-narrative` Edge Function will be tested against the Maya pair plus the org-wide aggregate.
+- PTP or NAI cross-instrument pairings for the 46 new users. The cross-instrument tab on the AIRSA org dashboard will render limited data on the test org until additional fixtures are seeded for those instruments.
+- Trend data over time. All 47 pairs share a single timestamp window. The Trends tab on the dashboard will show a single point until time-spread fixtures are added.
