@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v36 - Session 44 closeout*
+*v37 - Session 45 closeout*
 
 ## Priority key
 
@@ -86,6 +86,43 @@ Phase 5b SHIPPED. AIRSA org dashboard live at `/company/airsa-dashboard` route, 
 **Documented test fixture drift**: arch-ref §11.1 said Engineering 18, Marketing 13. Actual on Session 44 verification: Engineering 19 users (18 with AIRSA), Marketing 16 users (15 with AIRSA), Finance unchanged at 14, Executive still 5 users with 0 AIRSA. The 47 AIRSA pair total is unchanged from Session 42 close. Calibration Map renders 3 columns (Eng/Fin/Mkt) on the test fixture; Executive will appear automatically once seeded with AIRSA pairs. Not blocking.
 
 **Risk-flag color bug observed but NOT fixed in Session 44**: HIGH risk flags render with Tailwind red (#dc2626 / #fee2e2 / #991b1b) instead of brand orange variants per arch-ref §6.1. Logged as top Session 45 priority below.
+
+## Session 45 deltas summary
+
+Multiple parallel tracks shipped this session: AIRSA dashboard PDF export, AIRSA AI workforce narrative voice rewrite, NAI dashboard PDF generator extraction (Option A foundation), risk-flag color fix, two PDF/UI rendering fixes, plus full recon and scope doc for the Org Overview Dashboard and AIRSA cross-instrument extensions.
+
+**Sub-task 1 SHIPPED — Risk-flag color fix.** Per Cole's call (Option B over Option A), HIGH = solid `ORANGE` chrome with white badge text + ORANGE borderLeft preserved; WARN = `#fef0e7` peach fill + `ORANGE` 4px borderLeft + ORANGE badge text on tint. Three single-character edits in `AirsaDashboard.tsx` lines 750-776.
+
+**Sub-task 3 SHIPPED — AIRSA org dashboard PDF export.** New file `src/lib/generateAIRSADashboardPdf.ts` (~1276 lines after Lovable). PTP-pattern mirror with AIRSA-specific helpers: `cleanMarkdown`, ASCII glyph substitutions (`^` for ▲, `+` for ◆), `sectionHeading(title, minContentNeeded)` anti-orphan pattern, page geometry (PAGE_W=210, MARGIN_L/R=15, CONTENT_W=180). Sections: Cover (NAVY hero band, 4-card metric strip) → Overview (calibration summary card + always-expanded narrative + 2 ranking panels + Calibration Map + risk flags) → Domains (8 cards stacked-bar) → Skill Inventory (24-row table, columns sum to 180mm) → Manager Calibration (top 5/bottom 5 cards) → Trends (TCI history table only). Calibration Map: 60mm skill column + dept columns at `(180-60)/N` mm, max 8 columns with overflow note, dashed border on blind_spot via `setLineDashPattern([1.5,1.5])` then reset. Filename: `BrainWise-AIRSA-CompanyDashboard-YYYY-MM-DD.pdf`.
+
+**NAI PDF generator extracted.** New file `src/lib/generateNAIDashboardPdf.ts` mirrors `generatePTPDashboardPdf.ts` structure. Replaced ~890-line inline jsPDF block in `CompanyDashboard.tsx` lines 753-1644 with imported function call. Decisions locked: camelCase keys for `NAIDashboardPdfSections` (overview, dimensions, interpretation, leaderPerspective, trends, interventions, crossInstrument), full PTP modal mirror dropping "No data yet" indicators, 360px width modal, single h2 title. Surfaced previously-dead `interventions` section that was gated on a key never set under old kebab-case state.
+
+**AIRSA AI narrative voice rewrite — `generate-airsa-org-narrative` v2 deployed.** Skill names confirmed at 13-37 chars (avg 21) — short enough to drop skill numbers from prose without bloating. New prompt structure: AUDIENCE block targeting CPO/VP HR; VOCABULARY RULES table mapping internal terms (cps_growth, blind_spot, underestimate, confirmed_strength, confirmed_gap, aligned-Proficient) to plain-English substitutes; expanded BANNED words/phrases (concentrate, underpin, compound, destabilising, "the symmetry of", "the data tells us"); SECTION STRUCTURES enforcing lead paragraph + 2-3 hyphen bullets + closing paragraph for business_meaning/benefits/risks; numbered sequence (no opener/closer) for next_steps; "What this means:" + "What to do:" hyphen-bullet block for risk_flags detail. TCI introduced as "Talent Calibration Index (TCI)" first, then TCI thereafter. Edge function source saved at `/home/claude/edge-functions/generate-airsa-org-narrative/index.ts`. Cole regenerated test org narrative — voice "is great" per his feedback.
+
+**Two rendering bugs fixed (Prompts 3 + 4).** Both shipped first try.
+
+Prompt 3 — `bodyText` helper in `generateAIRSADashboardPdf.ts`. Two fixes:
+1. Font-state leak: `renderContinuationHeader` set 10pt italic and reset weight but not size, causing splitTextToSize-measured 8.5pt lines to render at 10pt and overflow right margin (visible page 3 of first AIRSA PDF). Fix: re-apply `setFontSize(8.5)`, `setFont("helvetica", "normal")`, `setText(BLACK)` inside the for-loop after `checkPageBreak()` and before `doc.text()`.
+2. Bullet rendering: split text on `\n` first; detect lines matching `/^[-*]\s+(.+)$/` (bullets) or `/^(\d+\.)\s+(.+)$/` (numbered); render with 4mm hanging indent + 1mm extra spacing before each list item; wrapped continuation lines indent past prefix.
+
+Prompt 4 — `renderNarrativeText(text, fontSize, color)` helper inside `AirsaDashboard.tsx`. Splits on `\n`, classifies each line, buffers prose into `<p>`, renders bullets as flex rows with `paddingLeft: 16, marginBottom: 4`, numbered items with hanging-indent flex layout. Replaced 7 render points (summary card + 5 expanded narrative subsections + risk flag detail).
+
+Send order was Prompt 4 first (frontend, instant verification), Prompt 3 second (PDF re-export). Both landed perfectly.
+
+**Sub-task 2 (originally "Phase 7 cross-instrument wiring + test fixture seeding") PIVOTED then SCOPED for future session.** Recon completed in full:
+- Test fixture overlap verified excellent: 44 PTP+AIRSA users, 34 NAI+AIRSA users, 32 all-three. **Sub-task 2b (test fixture seeding) DROPPED entirely** — no seeding needed.
+- `org_cross_instrument_recommendations` schema already instrument-agnostic. **No migration needed.**
+- `trigger_logic` table inventory: 11 rules total. INST-003 source has only 1 generic rule (TRG-011). Existing v7 Edge Function does NOT read from trigger_logic — uses hardcoded `CO_ELEVATION_MAPPINGS` array (7 NAI↔PTP pairings).
+- v7 Edge Function source review: hardcoded reject `if (!["INST-001", "INST-002"].includes(primary_instrument_id)) throw`. Two prompt builders both NAI↔PTP focused. AIRSA's data shape (TCI, alignment_rate, status_distribution, manager_calibration) fundamentally different from PTP/NAI dimension averages.
+- Cole's decision: build BOTH the per-dashboard AIRSA cross-instrument AND a new Org Overview dashboard. Three-way analysis (NAI×PTP×AIRSA) lives ONLY on Overview. Per-dashboard tabs stay 1×1 pairings (PTP×AIRSA, NAI×AIRSA, plus existing PTP×NAI). B2 path locked: use trigger_logic as actual source of truth (vs B1 which would hardcode mappings in code mirroring v7).
+
+**Comprehensive scope document produced** at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md` (~720 lines, 4 phases). Phase 1 = trigger_logic seed (~12 new rules). Phase 2 = new Edge Function `generate-airsa-cross-instrument-recommendations`. Phase 3 = new Org Overview dashboard at `/company/overview` with 6 headline numbers (2 per instrument), synthesis narrative, cross-cutting actions, deep-dive links, new `org_overview_narratives` table. Phase 4 = wire AIRSA cross-instrument cards on AIRSA dashboard's Trends tab + add ×AIRSA sub-tabs to PTP and NAI dashboards via shared `CrossInstrumentCard` component. Estimated 3-5 sessions to execute in full. Doc is upload-ready as a session-opener.
+
+**Architectural learnings logged** (added to arch-ref §8):
+- jsPDF font-state leak through `renderContinuationHeader` requires re-applying font state on EVERY `doc.text()` call inside a multi-line wrapped-text loop, not just before `splitTextToSize`. The previous §5.6 rule 2 only addressed the measure step, not the render step.
+- Frontend bullet rendering for AI-emitted hyphen-prefixed lines requires explicit string-split + line-classification rendering. `whiteSpace: pre-wrap` preserves newlines but provides zero visual hierarchy. Pattern locked in `renderNarrativeText` helper, portable to other dashboards.
+
+**Voice work decision**: AIRSA voice rewrite (this session) was a one-instrument case study. Action-Oriented Voice Redesign across NAI/PTP individual report and dashboard surfaces remains in build queue. Sequencing matters: Voice Redesign should ship BEFORE Org Overview, otherwise the Overview will surface NAI/PTP narratives in the old clinical voice while AIRSA shows the new voice — inconsistent.
 
 ## Verified bugs with explicit fix instructions
 
@@ -328,27 +365,33 @@ If both sub-tasks are deferred past launch, the cross-instrument section continu
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 45 opening
+## Top priority items for Session 46 opening
 
-### [HIGH] Risk-flag color fix — replace Tailwind red with brand orange variants
+### [Cole to choose] Three candidate work tracks for Session 46
 
-`AirsaDashboard.tsx` risk flag render block currently uses `#dc2626` (border-left), `#fee2e2` (background), `#991b1b` (text) for HIGH-level risk flags. Per architecture-reference §6.1, the brand uses orange (not red) for danger states. Replace with `#993c1d` border-left, `#fde4d4` background, `#993c1d` text. WARN-level keeps existing `ORANGE` (`#F5741A`) variants. The visual differentiation between HIGH and WARN comes from orange depth + the badge label, not from a hue switch to red. Three single-character edits in one render block. Frontend-only Lovable prompt.
+Cole flagged at end of Session 45 that the next session pivots to "another section of work that is more important" than the Overview / cross-instrument scope. The Org Overview + AIRSA cross-instrument scope doc is parked at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md` for a future session — upload it at session open and the receiving session executes Phase 1 → Phase 4. Sessions 46+ pick up whatever Cole prioritizes next.
 
-### [HIGH] Phase 7 Cross-Instrument wiring + test fixture seeding
+The three candidate priorities (any can be chosen for Session 46 opening):
 
-Two sub-tasks needed for cross-instrument analysis to actually populate on the AIRSA dashboard Trends + Cross-Instrument tab. Currently renders placeholder cards marked "Coming post-launch (Phase 7)".
+### [HIGH] Action-Oriented Voice Redesign across NAI and PTP surfaces
 
-Sub-task A (backend): Add `trigger_logic` table rules for `source_instrument='INST-003'`. Build cross-instrument correlation logic — likely follows the `org_cross_instrument_recommendations` table pattern already used by NAI and PTP, populated by an Edge Function generator. AIRSA-specific correlations to surface: PTP dimension → AIRSA skill calibration patterns; NAI C.A.F.E.S. dimension → AIRSA domain readiness patterns. Reuse existing instrument-agnostic schema in `org_cross_instrument_recommendations`.
+Replace neuropsychology consulting prose with scannable action-oriented language using expandable detail cards across six surfaces: NAI dashboard UI/PDF, PTP dashboard UI/PDF, NAI individual results UI/PDF, PTP individual results UI/PDF. The AIRSA voice work in Session 45 (`generate-airsa-org-narrative` v2 prompt) is the canonical voice template — apply same VOCABULARY RULES table, BANNED words/phrases, SECTION STRUCTURES discipline to NAI and PTP generators.
 
-Sub-task B (test fixture): Seed PTP and NAI completions for a subset of the 47 AIRSA users on BrainWise Test Corp so cross-instrument has data to render at all. Without this seed, even with Phase 7 wiring complete, the cross-instrument section renders empty on the test org. Estimate: ~20 users with both PTP+AIRSA, ~20 users with both NAI+AIRSA, allowing meaningful correlation computation above n=5 thresholds.
+This is a sequencing dependency for the Org Overview work: Overview will pull NAI/PTP narrative summaries as headlines, and if those are still in the old clinical voice while AIRSA is in the new voice, Overview will read inconsistently. Voice Redesign before Overview build is the right order.
 
-### [HIGH] AIRSA org dashboard PDF export
+Affected Edge Functions:
+- `generate-dashboard-narrative` v22 (NAI + PTP org)
+- `generate-facet-interpretations` v23 (NAI + PTP individual)
+- `generate-nai-delta-narrative` v10
+- `generate-ptp-delta-narrative` v7
 
-Currently the Export PDF button on `AirsaDashboard.tsx` is disabled with a tooltip ("coming in Phase 5b Prompt 2"). Implementation will follow the AIRSA combined-report PDF pattern shipped in Session 41 (jsPDF native primitives, ASCII glyph substitution per §5.6 rule 1, splitTextToSize font-state discipline per §5.6 rule 2, sectionHeading anti-orphan via minContentNeeded per §5.6 rule 3). Cover page + Overview snapshot (TCI strip + ranking panels + Calibration Map rendered as native lines/cells preserving STATUS_COLORS with dash-pattern on blind_spot only) + Domains tab summary + Skill Inventory table (paginated) + Manager Calibration tab + Trends snapshot. Section export checkboxes mirror NAI's pattern from `CompanyDashboard.tsx` lines 354-361.
+### [HIGH] Org Overview Dashboard + AIRSA Cross-Instrument
 
-### [MEDIUM, carried] AI tone pass — DEFERRED BATCH
+Full scope at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md`. 4 phases, 3-5 sessions estimated. Recommended sequence after Voice Redesign completes.
 
-Consolidated review of all instrument-level AI generators across the platform (see "AI tone pass — DEFERRED BATCH" section below). Run pre-launch but not launch-blocking.
+### [MEDIUM, carried] Outstanding pre-launch quality items
+
+Various small items carried from prior sessions: NAI/PTP latent slice-control bugs (deferred for post-launch per Session 44), aligned_pct/confirmed_gap_pct split on Domains tab (Session 44 open question), and the AI tone pass DEFERRED BATCH below for any remaining tone leakage.
 
 ## AI tone pass — DEFERRED BATCH
 
@@ -362,7 +405,7 @@ Consolidated batch covering all AI Edge Functions on the platform. Specific item
 - generate-airsa-conversation-guide (v3)
 - generate-airsa-top-priorities (v2)
 - generate-airsa-cross-instrument (v2)
-- generate-airsa-org-narrative (v1, NEW Session 43)
+- generate-airsa-org-narrative (v2, voice redesigned in Session 45 — use as canonical voice template for the rest of this batch)
 - generate-dashboard-narrative (v22, PTP+NAI org)
 - generate-facet-interpretations (v23, PTP+NAI individual)
 - generate-cross-instrument-recommendations (v7)
