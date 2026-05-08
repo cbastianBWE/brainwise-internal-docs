@@ -1,12 +1,12 @@
 # BrainWise System Architecture Reference
 
-*v37 - Session 43 closeout (Phase 5a backend SHIPPED — RPC and Edge Function deployed and verified)*
+*v38 - Session 44 closeout (Phase 5b frontend SHIPPED — AIRSA dashboard live across all 5 tabs)*
 
 ## 1. Overview
 
-This reference captures the canonical system architecture for the BrainWise platform as of Session 43 close. Phase 5a backend (RPC `get_airsa_aggregate` and Edge Function `generate-airsa-org-narrative`) shipped in Session 43 and is verified end-to-end against the seeded fixture (47 AIRSA pairs on BrainWise Test Corp, org-wide TCI = 40.1). Phase 5b frontend is the next deliverable.
+This reference captures the canonical system architecture for the BrainWise platform as of Session 44 close. **Phase 5b AIRSA org dashboard frontend shipped in Session 44**, with route `/company/airsa-dashboard` gated identically to NAI and PTP. The `get_airsa_aggregate` RPC was extended this session with a `per_department_breakdown` field on every skill aggregate, enabling the Calibration Map's 24-skill × N-department visualization without per-slice fan-out. End-to-end Anthropic-API-to-INSERT chain on `generate-airsa-org-narrative` verified for the first time in Session 44.
 
-Prior context as of Session 42 close: AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report), and Phase 4 (PDF export) are all shipped to production and verified. Phase 5a backend recon is complete; the RPC + Edge Function build is the next launch-blocking deliverable.
+Prior context: Phase 5a backend (RPC and Edge Function) shipped Session 43. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report), and Phase 4 (PDF export) are all shipped to production and verified.
 
 A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. Phase 3e frontend shipped via AirsaCombinedReport.tsx in Session 40 with multiple visual polish iterations. Phase 4 PDF export shipped in Session 41. Phase 5a backend recon completed and AIRSA test fixture seeded in Session 42 (47 pairs total in production, org-wide TCI = 40.1). The complete brand color map and the AIRSA STATUS_COLORS canonical mapping are in Section 5.
 
@@ -400,6 +400,8 @@ Class C: x-dispatcher-secret (departure_dispatcher_shared_secret)
 
 - NEW (Session 43): n<5 suppression in aggregate RPCs must be applied to the eligible participant pool size (`array_length(v_participant_ids)`), NOT the skill-pair count or any product of participants × items. Suppressing on a participant × items product silently allows single-participant slices through, breaking privacy guarantees. Caught and fixed during Session 43 verification of `get_airsa_aggregate`.
 - NEW (Session 43): When an Edge Function calls a SECURITY DEFINER RPC on behalf of a user, the RPC client must be created with the user's JWT forwarded as Authorization header: `createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: 'Bearer <userToken>' } } })`. This makes `auth.uid()` resolve correctly inside the RPC. Service-role clients bypass `auth.uid()` entirely (returns NULL), which would break SECURITY DEFINER caller validation. The Class B path uses the service-role client because there's no user JWT, and instead requires `organization_id` in the request body.
+- NEW (Session 44): When extending an existing RPC's payload shape with new fields, Edge Functions that read the payload as opaque JSONB (no per-field iteration) accept the new fields without redeployment. Verified for `generate-airsa-org-narrative` consuming the new `per_department_breakdown` field added in Session 44 — function was unchanged, just stored the larger payload in `org_dashboard_narratives.dimension_scores`. This is the safe extension pattern: add new fields rather than restructuring existing ones, and downstream consumers that don't reference the new fields keep working.
+- NEW (Session 44): When populating a frontend dropdown with org-scoped data that doesn't have a dedicated RPC, prefer a direct `users` table query under existing RLS over creating a new SECURITY DEFINER RPC. The supervisor list for the AIRSA Team selector uses two PostgREST queries (subordinates with non-null supervisor_user_id, then a name lookup on the distinct supervisor IDs) instead of adding a `list_org_supervisors()` RPC. This pattern is appropriate when (a) the data is already exposed to the role via existing RLS, (b) the lookup is cheap (typically dozens of rows), and (c) the alternative would be a single-purpose RPC that adds maintenance surface without unique value. Reserve new RPCs for cases requiring SECURITY DEFINER privilege escalation, multi-table joins beyond what RLS allows, or computation that can't be done client-side.
 
 ## 9. Test fixtures
 
@@ -467,33 +469,101 @@ Tie-breakers: growth prefers higher blind_spot_pct (org doesn't see the problem 
 
 Priority markers (Session 41 lock): orange ▲ for top 2 growth skills, green ◆ for top 2 strength skills, on row labels. Markers track the active slice's CPS rankings (when a department slice is on, markers reflect that department's priorities, not the org-wide priorities).
 
-### 10.6 Schema strategy
+### 10.6 Schema strategy and verified RPC payload
 
 Match PTP/NAI exactly. Reuse `org_dashboard_narratives` table with `instrument_id = 'INST-003'`. AIRSA-specific aggregates carried in `dimension_scores` JSONB. AI workforce narrative cached in `narrative_text` JSONB. TCI carried in `index_score` numeric column. NO new aggregate table.
 
-Session 42 recon confirmed: existing `'team'` slice already routes by `supervisor_user_id`. Manager Calibration tab is computed inside the RPC by iterating supervisors with min-3-reports threshold. **No `slice_type` CHECK constraint migration needed. No table migrations needed for Phase 5a.**
+Session 42 recon confirmed: existing `'team'` slice already routes by `supervisor_user_id`. Manager Calibration tab is computed inside the RPC by iterating supervisors with min-3-reports threshold.
 
-Proposed JSONB shape for `dimension_scores`:
+Session 44 added a `per_department_breakdown` field on every skill aggregate via migration `add_per_department_breakdown_to_get_airsa_aggregate`. This was needed for the Calibration Map's 24-skill × N-department visualization (Phase 5b frontend). Implementation adds two CTEs (`skill_dept_agg` and `skill_dept_object`) that group `skills_long` by `(skill_number, department_name)` joined to `users.department_id` → `departments.id` → `departments.name`. Null-safe fallback to `(unassigned)`. Per-cell `modal_status` is computed via `MODE() WITHIN GROUP (ORDER BY status)` over the actual per-pair status values, more accurate than recomputing from modal levels. Per-cell n<5 suppression flag is set independently of wholesale RPC suppression.
+
+**Verified RPC payload shape** (live against the seeded fixture as of Session 44 close):
 
 ```jsonc
 {
-  "tci_overall": 38,
-  "alignment_rate": 38,
-  "blind_spot_rate": 21,
-  "underestimate_rate": 42,
-  "coverage_pct": 72,
-  "domain_aggregates": { "DIM-AIRSA-01": { "self_level_dist": {...}, "manager_level_dist": {...}, "status_dist": {...}, "n": 26, "cps_growth": 0.78, "cps_strength": 0.04 } },
-  "skill_aggregates": { "1": { "self_avg_level": "Proficient", "manager_avg_level": "Foundational", "tci": 33, "blind_spot_pct": 42, "underestimate_pct": 8, "n": 26, "cps_growth": 0.81, "cps_strength": 0.04 } },
-  "rankings": {
-    "growth_skills": [{ "skill_number": 14, "cps_growth": 0.86 }, ...],
-    "strength_skills": [{ "skill_number": 20, "cps_strength": 0.62 }, ...],
-    "growth_domains": [{ "dimension_id": "DIM-AIRSA-04", "cps_growth": 0.78 }, ...],
-    "strength_domains": [{ "dimension_id": "DIM-AIRSA-07", "cps_strength": 0.41 }, ...]
+  "suppressed": false,
+  "instrument_id": "INST-003",
+  "slice_type": "all",
+  "slice_value": "all",
+  "pair_count": 1128,
+  "eligible_count": 54,
+  "completed_count": 47,
+  "tci_overall": 40.1,
+  "alignment_rate": 59.0,
+  "blind_spot_rate": 20.3,
+  "underestimate_rate": 20.7,
+  "status_distribution": {
+    "aligned": 276,
+    "confirmed_strength": 176,
+    "confirmed_gap": 214,
+    "blind_spot": 229,
+    "underestimate": 233
   },
-  "calibration_map": [...],
-  "manager_calibration": [...]
+  "skill_aggregates": {
+    "1": {
+      "skill_name": "Cognitive Adaptability",
+      "dimension_id": "DIM-AIRSA-01",
+      "domain_name": "Cognitive & Learning Skills",
+      "modal_self_level": "Proficient",
+      "modal_manager_level": "Proficient",
+      "tci": 72.3,
+      "blind_spot_pct": 8.5,
+      "underestimate_pct": 14.9,
+      "confirmed_strength_pct": 8.5,
+      "n": 47,
+      "cps_growth": 0.5458,
+      "cps_strength": 8.5106,
+      "suppressed": false,
+      "per_department_breakdown": {
+        "Engineering": { "n": 18, "tci": 72.2, "modal_status": "aligned",
+                         "blind_spot_pct": 11.1, "underestimate_pct": 16.7,
+                         "confirmed_strength_pct": 11.1, "suppressed": false },
+        "Finance":     { "n": 14, "tci": 64.3, "modal_status": "aligned", ... },
+        "Marketing":   { "n": 15, "tci": 80.0, "modal_status": "aligned", ... }
+      }
+    },
+    // ... 23 more skills keyed by skill_number string
+  },
+  "domain_aggregates": {
+    "DIM-AIRSA-01": {
+      "domain_name": "Cognitive & Learning Skills",
+      "tci": 53.9,
+      "blind_spot_pct": 31.9,
+      "underestimate_pct": 11.3,
+      "confirmed_strength_pct": 5.0,
+      "n": 141,
+      "cps_growth": 0.5806,
+      "cps_strength": 4.9645,
+      "suppressed": false
+    },
+    // ... 7 more domains
+  },
+  "rankings": {
+    "growth_skills":   [{ "skill_number": 10, "skill_name": "Identity Flexibility",
+                          "dimension_id": "DIM-AIRSA-03", "cps_growth": 1.8030 }, ...],
+    "strength_skills": [{ "skill_number": 23, "skill_name": "Algorithmic Vigilance",
+                          "dimension_id": "DIM-AIRSA-08", "cps_strength": 85.1064 }, ...],
+    "growth_domains":  [{ "dimension_id": "DIM-AIRSA-03", "domain_name": "Psychological Readiness",
+                          "cps_growth": 1.4350 }, ...],
+    "strength_domains":[{ "dimension_id": "DIM-AIRSA-04", "domain_name": "Strategic & Systems Thinking",
+                          "cps_strength": 51.0638 }, ...]
+  },
+  "manager_calibration": [
+    { "supervisor_id": "...", "supervisor_name": "Demo Reese Thomas",
+      "n_reports": 3, "n_skill_pairs": 72,
+      "tci": 47.2, "blind_spot_pct": 16.7, "underestimate_pct": 13.9 },
+    // ... 9 more (only supervisors meeting n>=3 threshold)
+  ]
 }
 ```
+
+Notes on the actual shape vs the original Session 41 spec:
+
+- `status_distribution` returns RAW COUNTS, not percentages. Frontend computes percentages by dividing each by `pair_count`.
+- Skill aggregates carry `modal_self_level` and `modal_manager_level` (categorical), not numeric averages.
+- Both skill and domain aggregates carry `domain_name` directly (no need to join `dimensions` table on the frontend).
+- `per_department_breakdown` keys are `departments.name` strings (with `(unassigned)` fallback for null department_id). When slice is `department=X`, the breakdown returns a single key matching that department.
+- No top-level `calibration_map` array exists. The frontend reconstructs the calibration matrix from `skill_aggregates[N].per_department_breakdown` per skill.
 
 ### 10.7 Cadence
 
@@ -512,6 +582,37 @@ Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(p_slice_type, p_slice_value
 - Anonymous self-report mode (defer until customer asks)
 - Predictive "if you close blind spots in Skill X, expected TCI gain is Y" (requires platform-wide outcome data; Wave 2/3 validation pathway)
 
+### 10.10 Phase 5b frontend (SHIPPED Session 44)
+
+Single new file: `src/pages/company/AirsaDashboard.tsx`. Modifications to `src/App.tsx` (route addition) and `src/components/AppSidebar.tsx` (Dashboards submenu third entry).
+
+Route: `/company/airsa-dashboard`. RoleGuard `["company_admin", "org_admin", "brainwise_super_admin"]` — identical to NAI and PTP. Defense-in-depth: the route gate at the React layer, the Edge Function caller validation against the same role set in `generate-airsa-org-narrative`, and the SECURITY DEFINER RPC's caller validation inside `get_airsa_aggregate`.
+
+**Locked AIRSA dashboard domain coloring** (frontend-only constants in `AirsaDashboard.tsx`):
+
+- DIM-AIRSA-01 Cognitive & Learning Skills — Navy `#021F36`
+- DIM-AIRSA-02 Social & Collaborative Skills — Teal `#006D77`
+- DIM-AIRSA-03 Psychological Readiness — Purple `#3C096C`
+- DIM-AIRSA-04 Strategic & Systems Thinking — Mustard `#7a5800`
+- DIM-AIRSA-05 Execution & Practical Skills — Green `#2D6A4F`
+- DIM-AIRSA-06 Proactivity & Personal Drive — Orange `#F5741A`
+- DIM-AIRSA-07 Information & Resource Management — Gray `#6D6875`
+- DIM-AIRSA-08 Ethical & Reflective Judgment — Deep plum `#5A1A4A`
+
+The new `#5A1A4A` is dashboard-scoped (not part of the global brand palette). It avoids reusing PTP Purpose `#3C096C` in a context where AIRSA Psychological Readiness already takes Purple. PTP Purpose and AIRSA D8 will never appear on the same dashboard, but the visual proximity in the AIRSA Calibration Map's domain-band ordering required a distinct hue.
+
+**Calibration Map implementation**: HTML CSS Grid (NOT SVG). 24 skill rows × N department columns. Cell rendering iterates `skill_aggregates[N].per_department_breakdown[deptName]`. Cells with `suppressed: true` render gray with "n<5" tooltip. Cells with `modal_status === 'blind_spot'` render with dashed border and transparent fill (preserving STATUS_COLORS canonical iconography). Hover popover via native `title` attribute. Priority markers ▲ (orange) for top 2 growth skills and ◆ (green) for top 2 strength skills, sourced from `aggregate.rankings.growth_skills.slice(0,2)` and `strength_skills.slice(0,2)`.
+
+**Three latent bugs surfaced and fixed in AIRSA build, deferred for NAI/PTP**:
+
+1. Team `<select>` populated from `departments.map` (sending `department_id` where RPC expects `supervisor_user_id`). Fixed in AIRSA via direct `users` table query under existing RLS.
+2. Slice control dropdowns lacked clearable first option; placeholder "Department ▾" / "Level ▾" / "Team ▾" disappeared after selection. Fixed in AIRSA by changing first-option labels to "All departments" / "All levels" / "All teams".
+3. cps_growth (0-2 composite) and cps_strength (%) panels displayed without unit context. Fixed in AIRSA via italic subtitle line under each panel header.
+
+NAI and PTP still carry bugs 1 and 2; deferred for post-launch fix to avoid regression risk on dashboards already in production use.
+
+**Known UX issue carried to Session 45**: HIGH risk-flag rendering uses Tailwind red (`#dc2626` / `#fee2e2` / `#991b1b`) instead of brand orange variants per §6.1. Fix is a three-edit patch in the risk flag render block.
+
 ## 11. AIRSA test fixture seed (Session 42)
 
 A production-realistic AIRSA test fixture lives on the BrainWise Test Corp organization. Seeded in Session 42 to enable end-to-end validation of the Phase 5a RPC + Edge Function and the Phase 5b dashboard UI before any real customer data exists.
@@ -526,6 +627,8 @@ BrainWise Test Corp now has 4 departments and 50 corporate employees:
 - **Marketing**: 13
 
 Supervisor chain: 17 distinct supervisors, with 10+ clearing the Manager Calibration min-3-reports threshold. `users.supervisor_user_id` populated for all corporate_employee rows that have a supervisor.
+
+**Session 44 fixture drift observed**: live counts are Engineering 19 users (18 with AIRSA), Marketing 16 users (15 with AIRSA), Finance unchanged at 14. Executive still has 5 users with 0 AIRSA pairs. The 47 AIRSA pair total is unchanged from Session 42 close. Calibration Map renders 3 columns (Engineering, Finance, Marketing) on the test fixture as of Session 44; Executive will appear automatically once seeded with AIRSA pairs.
 
 ### 11.2 AIRSA pairs
 

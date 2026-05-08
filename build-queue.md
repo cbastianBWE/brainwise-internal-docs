@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v35 - Session 43 closeout*
+*v36 - Session 44 closeout*
 
 ## Priority key
 
@@ -62,6 +62,30 @@ Phase 5a backend SHIPPED. Both pieces deployed and verified end-to-end against t
 **Not verified by Session 43:** Full Anthropic-API-to-JSON-parse-to-INSERT happy path. Auth gate, RPC fetch, and INSERT shape verified individually but not chained through a real session token. First frontend call in Phase 5b will validate this. Edge function deployed v1 active, 282ms cold start, auth gate confirmed firing in logs.
 
 Session 43 also consolidated all individual-instrument AI tone work into a single MEDIUM batch item (see "AI tone pass — DEFERRED BATCH" section below).
+
+## Session 44 deltas summary
+
+Phase 5b SHIPPED. AIRSA org dashboard live at `/company/airsa-dashboard` route, gated identically to NAI and PTP (RoleGuard `["company_admin", "org_admin", "brainwise_super_admin"]`). End-to-end verified against the seeded fixture across all 5 tabs.
+
+**Backend delta**: `get_airsa_aggregate` RPC extended with `per_department_breakdown` field on every skill aggregate. Migration `add_per_department_breakdown_to_get_airsa_aggregate` adds two new CTEs (`skill_dept_agg` and `skill_dept_object`) that compute per-(department, skill) cells with n, tci, modal_status (most-frequent actual status value), blind_spot_pct, underestimate_pct, confirmed_strength_pct, and per-cell suppression flag. Cells with n<5 carry `suppressed: true`. Department-keyed (with `(unassigned)` fallback for null department_id). All Session 43 baseline values verified unchanged: TCI 40.1, pair_count 1128, status distribution 276/229/214/233/176, top growth Identity Flexibility 1.8030, top strength Algorithmic Vigilance 85.1064, 10 supervisors meeting n>=3 threshold. Department slice returns single-key per_department_breakdown. Wholesale eligible-pool suppression at n<5 still fires correctly. `generate-airsa-org-narrative` Edge Function v1 unchanged (reads RPC payload as opaque JSONB; new field passes through cleanly).
+
+**Frontend delta**: New file `src/pages/company/AirsaDashboard.tsx` (single coordinated build across two prompts). Modifications to `src/App.tsx` (route addition with RoleGuard) and `src/components/AppSidebar.tsx` (Dashboards submenu third entry). All 5 tabs implemented:
+
+- **Overview**: sticky header with TCI big number + 3 sub-metric chips; AI workforce narrative card with summary, Top 3 actions, and expand-for-full-narrative; Greatest Growth / Strengths to Capitalize paired panels (top 2 / top 5 expandable, with disambiguating subtitles for cps_growth 0-2 scale vs cps_strength %); Calibration Map (HTML CSS Grid, 24 skill rows × N department columns, locked STATUS_COLORS with dashed-border blind_spot, ▲ orange / ◆ green priority markers tracking active slice's CPS rankings, hover popover with n/TCI/blind/under, suppressed cells gray with n<5 tooltip); risk flags from latestNarrative.narrative_text.risk_flags
+- **Domains**: 8 cards ordered by cps_growth DESC, each with colored dot, growth and strength CPS chips, big TCI, and status distribution stacked bar (4 segments since RPC currently returns confirmed_strength_pct, blind_spot_pct, underestimate_pct only; aligned + confirmed_gap combined into "Other" middle segment)
+- **Skill Inventory**: sortable filterable table (default sort cps_growth DESC, click any column header to re-sort), domain filter dropdown, search by skill name, click-to-expand row showing per-department TCI cards using the new per_department_breakdown field
+- **Manager Calibration**: Top 5 best-calibrated and Bottom 5 requiring-attention sections from manager_calibration array (already n>=3 suppressed in RPC), each card showing name, TCI, n_reports/n_skill_pairs, asymmetry label (Over-rates / Under-rates / Balanced via blind - underestimate threshold), blind/under breakdown
+- **Trends + Cross-Instrument**: TCI-over-time LineChart from org_dashboard_narratives history filtered to instrument_id='INST-003' (renders empty state at 0 narratives, single-point notice at 1, full chart at 2+); placeholder cards for PTP×AIRSA and NAI×AIRSA correlations marked "Coming post-launch (Phase 7)"
+
+**End-to-end verification first achieved this session**: full Anthropic-API-to-JSON-parse-to-INSERT chain on `generate-airsa-org-narrative` v1, validating the path Session 43 noted as not-yet-verifiable. Real session token POST returned 200 OK; row inserted at `org_dashboard_narratives` with index_score=40.10, participant_count=47, narrative_text containing summary + 3 top_interventions + 3 risk_flags + 5 interventions structured per the prompt JSON spec. AI narrative tone confirmed working end-to-end.
+
+**Three latent bugs surfaced and fixed in Prompt 2**: (1) Team `<select>` was inheriting NAI/PTP pattern of populating from departments instead of supervisors, sending department_id where supervisor_user_id is expected — fixed via direct `users` table query under existing RLS, no new RPC; (2) slice control dropdowns lacked clearable first option after selection — first option labels changed from "Department ▾" / "Level ▾" / "Team ▾" to "All departments" / "All levels" / "All teams"; (3) cps_growth (0-2 composite) and cps_strength (%) panels lacked unit disambiguation — added italic subtitle line under each panel header. The first two bugs exist latently in NAI and PTP dashboards; deferred for post-launch fix to avoid regression risk on dashboards already in production use.
+
+**Architectural constraint added** (arch-ref §8): when extending an existing RPC's payload shape, new JSONB fields pass through Edge Functions that read the payload as opaque (no field iteration in their own logic) without redeployment. Verified for `generate-airsa-org-narrative` consuming the new `per_department_breakdown` field with no Edge Function changes.
+
+**Documented test fixture drift**: arch-ref §11.1 said Engineering 18, Marketing 13. Actual on Session 44 verification: Engineering 19 users (18 with AIRSA), Marketing 16 users (15 with AIRSA), Finance unchanged at 14, Executive still 5 users with 0 AIRSA. The 47 AIRSA pair total is unchanged from Session 42 close. Calibration Map renders 3 columns (Eng/Fin/Mkt) on the test fixture; Executive will appear automatically once seeded with AIRSA pairs. Not blocking.
+
+**Risk-flag color bug observed but NOT fixed in Session 44**: HIGH risk flags render with Tailwind red (#dc2626 / #fee2e2 / #991b1b) instead of brand orange variants per arch-ref §6.1. Logged as top Session 45 priority below.
 
 ## Verified bugs with explicit fix instructions
 
@@ -217,9 +241,9 @@ Three bugs fixed across v2 and v3 prompts:
 
 Final PDF: 9 pages for Maya dual-rater fixture (cover + heatmap + Profile overview + What this means + Action plan + Lollipop + Conversation guide + Top priorities + Cross-instrument placeholder + Skill reference + Methodology). All toggles work; self-only variant verified with `-SelfOnly` filename suffix and lollipop single-dot mode.
 
-### Phase 5 [HIGH but POST-LAUNCH OK, BACKEND SHIPPED in Session 43]: AIRSA org dashboard
+### Phase 5 [SHIPPED in Sessions 43-44]: AIRSA org dashboard
 
-Strategic frame designed and locked Session 41. Backend recon completed Session 42. Phase 5a backend (RPC + Edge Function) shipped Session 43 and verified against the seeded fixture. Phase 5b frontend (5 tabs) is the remaining piece.
+Strategic frame designed and locked Session 41. Backend recon completed Session 42. Phase 5a backend (RPC + Edge Function) shipped Session 43 and verified against the seeded fixture. **Phase 5b frontend (5 tabs) shipped Session 44** end-to-end, including the new `per_department_breakdown` field on skill aggregates added via Session 44 migration. AI narrative generation chain (Anthropic API → JSON parse → INSERT) verified live for the first time in Session 44.
 
 **Central thesis:** AIRSA's dashboard answers a structurally different question than PTP/NAI. Where PTP/NAI tell leadership about population states (threat reactivity, cognitive friction), AIRSA tells leadership about **calibration** — how accurately the organization sees its own AI talent. The data shape is fundamentally different: AIRSA is the only dual-rater instrument, so the org-level data isn't a distribution of scores but a distribution of agreements and disagreements.
 
@@ -279,7 +303,7 @@ Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(p_slice_type, p_slice_value
 
 **Phase 5a backend** [SHIPPED in Session 43]. RPC `get_airsa_aggregate` and Edge Function `generate-airsa-org-narrative` v1 both deployed and verified end-to-end against the seeded fixture. Full RPC payload shape with worked example in architecture-reference.md §10.6. Edge Function auth model and SOC 2 markers in arch-ref §10.7 and §8.
 
-**Phase 5b frontend** (5 tabs of UI; Calibration Map; Manager Calibration tab; cross-instrument tab). Mirror NAI's `CompanyDashboard.tsx` patterns where applicable.
+**Phase 5b frontend** [SHIPPED in Session 44]. Single coordinated build across two Lovable prompts. New file `src/pages/company/AirsaDashboard.tsx`, route `/company/airsa-dashboard` gated by RoleGuard `["company_admin", "org_admin", "brainwise_super_admin"]` matching NAI/PTP. All 5 tabs functional. Calibration Map renders 24 skill rows × N department columns using new `per_department_breakdown` RPC field with locked STATUS_COLORS, dashed-border blind_spot, ▲/◆ priority markers, hover popover, n<5 suppression. Domain coloring locked to 8-color brand map (D8 uses new `#5A1A4A` deep plum to avoid conflict with PTP Purpose `#3C096C`). Three latent NAI/PTP-inherited bugs surfaced and fixed in AIRSA build (Team selector populated supervisors instead of departments; clearable "All ___" dropdown labels; cps_growth vs cps_strength unit disambiguation subtitles). Latent NAI/PTP versions of the first two bugs deferred for post-launch fix to avoid regression risk on dashboards already in production use.
 
 **Deferred to v2 (post-launch):** skill-level radar chart on 24 axes (unreadable; heatmap is better); time-comparison overlays on Calibration Map; anonymous self-report mode; predictive "if you close blind spots in Skill X, expected TCI gain is Y" (requires platform-wide outcome data not yet available).
 
@@ -287,11 +311,16 @@ Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(p_slice_type, p_slice_value
 
 (Per Session 38 closeout; pending manager rows stay dormant when AIRSA is toggled off.)
 
-### Phase 7 [MEDIUM]: Cross-instrument recommendations wiring for AIRSA
+### Phase 7 [HIGH for Session 45]: Cross-instrument recommendations wiring for AIRSA
 
-Required for the airsa_cross_instrument section to function for users with PTP or NAI completed. The Phase 3e backend implementation reads dimension_scores from existing PTP/NAI rows; no schema changes needed. trigger_logic table additions for source_instrument = 'INST-003' rules are still TBD.
+Promoted to HIGH priority in Session 44 closeout. Currently the AIRSA dashboard Trends + Cross-Instrument tab renders placeholder cards for PTP × AIRSA and NAI × AIRSA marked "Coming post-launch (Phase 7)". Session 45 work to populate them.
 
-If not done before launch, the cross-instrument section renders empty for users without PTP/NAI (acceptable degraded state for v1).
+Two sub-tasks:
+
+- **Backend wiring**: Add `trigger_logic` table rules for `source_instrument='INST-003'`. Reuse the existing instrument-agnostic `org_cross_instrument_recommendations` table (already used by NAI and PTP). AIRSA-specific correlations: PTP dimension → AIRSA skill calibration patterns; NAI C.A.F.E.S. dimension → AIRSA domain readiness patterns.
+- **Test fixture seeding**: Seed PTP and NAI completions for ~20 of the 47 AIRSA users on BrainWise Test Corp so cross-instrument has data to render at all. Without this seed, even with backend wiring complete, the section renders empty on the test org.
+
+If both sub-tasks are deferred past launch, the cross-instrument section continues to render placeholder cards on the AIRSA dashboard. Acceptable degraded state for v1 launch.
 
 ### Phase 8 [MEDIUM]: Cleanup verification
 
@@ -299,17 +328,27 @@ If not done before launch, the cross-instrument section renders empty for users 
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 44 opening
+## Top priority items for Session 45 opening
 
-### [HIGH] Phase 5b frontend build — AIRSA org dashboard
+### [HIGH] Risk-flag color fix — replace Tailwind red with brand orange variants
 
-Single coordinated Lovable prompt covering 5 tabs of UI mirroring NAI's `CompanyDashboard.tsx` patterns. Backend is ready: RPC `get_airsa_aggregate` returns the full §10.6 shape, Edge Function `generate-airsa-org-narrative` is deployed at v1. Frontend wiring is the only remaining piece.
+`AirsaDashboard.tsx` risk flag render block currently uses `#dc2626` (border-left), `#fee2e2` (background), `#991b1b` (text) for HIGH-level risk flags. Per architecture-reference §6.1, the brand uses orange (not red) for danger states. Replace with `#993c1d` border-left, `#fde4d4` background, `#993c1d` text. WARN-level keeps existing `ORANGE` (`#F5741A`) variants. The visual differentiation between HIGH and WARN comes from orange depth + the badge label, not from a hue switch to red. Three single-character edits in one render block. Frontend-only Lovable prompt.
 
-First sub-task before writing the Lovable prompt: pull `src/pages/company/CompanyDashboard.tsx` and related files via GitHub MCP (or curl with line ranges if files are too large) so the AIRSA mirroring is precise. Identify which patterns to reuse verbatim and which need AIRSA-specific variants (Calibration Map, Manager Calibration tab, status pills with STATUS_COLORS). Specifically check how NAI CompanyDashboard handles slice controls, AI narrative regeneration, and the skill-inventory-style sortable table.
+### [HIGH] Phase 7 Cross-Instrument wiring + test fixture seeding
 
-Second sub-task: lock domain coloring before writing the prompt. Pull individual AIRSA results page palette from AirsaCombinedReport.tsx and assign 8 colors to the 8 domains. Avoid Green+Teal pairing in pastel contexts.
+Two sub-tasks needed for cross-instrument analysis to actually populate on the AIRSA dashboard Trends + Cross-Instrument tab. Currently renders placeholder cards marked "Coming post-launch (Phase 7)".
 
-5 tabs: Overview / Domains / Skill Inventory / Manager Calibration / Trends + Cross-Instrument. Calibration Map as visual centerpiece with orange ▲ (top growth) and green ◆ (top strength) priority markers tracking the active slice's CPS rankings. Greatest Growth Opportunities / Strengths to Capitalize panels on Overview using CPS-ranked top 2 skills + top 2 domains from the RPC's `rankings` payload. AI workforce narrative as inline expandable card on Overview tab (NOT a separate tab). Manager Calibration tab consumes the `manager_calibration` array directly; suppression already applied by RPC at n>=3.
+Sub-task A (backend): Add `trigger_logic` table rules for `source_instrument='INST-003'`. Build cross-instrument correlation logic — likely follows the `org_cross_instrument_recommendations` table pattern already used by NAI and PTP, populated by an Edge Function generator. AIRSA-specific correlations to surface: PTP dimension → AIRSA skill calibration patterns; NAI C.A.F.E.S. dimension → AIRSA domain readiness patterns. Reuse existing instrument-agnostic schema in `org_cross_instrument_recommendations`.
+
+Sub-task B (test fixture): Seed PTP and NAI completions for a subset of the 47 AIRSA users on BrainWise Test Corp so cross-instrument has data to render at all. Without this seed, even with Phase 7 wiring complete, the cross-instrument section renders empty on the test org. Estimate: ~20 users with both PTP+AIRSA, ~20 users with both NAI+AIRSA, allowing meaningful correlation computation above n=5 thresholds.
+
+### [HIGH] AIRSA org dashboard PDF export
+
+Currently the Export PDF button on `AirsaDashboard.tsx` is disabled with a tooltip ("coming in Phase 5b Prompt 2"). Implementation will follow the AIRSA combined-report PDF pattern shipped in Session 41 (jsPDF native primitives, ASCII glyph substitution per §5.6 rule 1, splitTextToSize font-state discipline per §5.6 rule 2, sectionHeading anti-orphan via minContentNeeded per §5.6 rule 3). Cover page + Overview snapshot (TCI strip + ranking panels + Calibration Map rendered as native lines/cells preserving STATUS_COLORS with dash-pattern on blind_spot only) + Domains tab summary + Skill Inventory table (paginated) + Manager Calibration tab + Trends snapshot. Section export checkboxes mirror NAI's pattern from `CompanyDashboard.tsx` lines 354-361.
+
+### [MEDIUM, carried] AI tone pass — DEFERRED BATCH
+
+Consolidated review of all instrument-level AI generators across the platform (see "AI tone pass — DEFERRED BATCH" section below). Run pre-launch but not launch-blocking.
 
 ## AI tone pass — DEFERRED BATCH
 
@@ -471,6 +510,16 @@ Class A primary for frontend Regenerate AI button (forwards user JWT to RPC clie
 Growth ranking: `ORDER BY cps_growth DESC NULLS LAST, blind_spot_pct DESC NULLS LAST` (matches Session 41 design). Strength ranking: `ORDER BY cps_strength DESC NULLS LAST, n DESC` (more reliable signal preferred). Locked in RPC body, not configurable from caller.
 
 ## Carried items from prior sessions (unchanged)
+
+### [POST-LAUNCH] NAI and PTP dashboard slice-control parity fixes
+
+Two latent bugs identified in Session 44 while building AIRSA Phase 5b. Both exist in `CompanyDashboard.tsx` (NAI) and `PTPDashboard.tsx` (PTP). Fixed in AIRSA Session 44; deferred for NAI/PTP to avoid regression risk on production dashboards.
+
+1. **Team `<select>` populated from departments instead of supervisors**: lines around CompanyDashboard.tsx 1798-1807 use `departments.map(d => ...)` for the Team dropdown, sending `department_id` where the RPC expects `supervisor_user_id`. The RPC correctly returns suppressed empty state, but the user can't actually select a team. Fix follows AIRSA pattern: add a supervisors loader querying `users` table directly under existing RLS, populate Team dropdown from that.
+
+2. **Dropdowns lack clearable first option after selection**: the placeholder labels "Department ▾" / "Level ▾" / "Team ▾" disappear after a value is selected, leaving no in-dropdown reset. Change first option labels to "All departments" / "All levels" / "All teams".
+
+Address in a single coordinated post-launch Lovable prompt covering both NAI and PTP. Frontend-only, no migrations.
 
 ### [LOW] Audit and reconcile semantic-token coverage between marketing-tokens.css and index.css
 
