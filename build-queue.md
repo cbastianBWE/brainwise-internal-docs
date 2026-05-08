@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v37 - Session 45 closeout*
+*v38 - Session 46 closeout*
 
 ## Priority key
 
@@ -123,6 +123,34 @@ Send order was Prompt 4 first (frontend, instant verification), Prompt 3 second 
 - Frontend bullet rendering for AI-emitted hyphen-prefixed lines requires explicit string-split + line-classification rendering. `whiteSpace: pre-wrap` preserves newlines but provides zero visual hierarchy. Pattern locked in `renderNarrativeText` helper, portable to other dashboards.
 
 **Voice work decision**: AIRSA voice rewrite (this session) was a one-instrument case study. Action-Oriented Voice Redesign across NAI/PTP individual report and dashboard surfaces remains in build queue. Sequencing matters: Voice Redesign should ship BEFORE Org Overview, otherwise the Overview will surface NAI/PTP narratives in the old clinical voice while AIRSA shows the new voice — inconsistent.
+
+## Session 46 deltas summary
+
+Pivot session away from AIRSA / cross-instrument workstream toward coach-tier and supervisor-tier features. Two items shipped end-to-end.
+
+**Group C Phase 8 (Item 37) SHIPPED — Order Assessment certification gating in `CoachClients.tsx`.** Cole flagged this as a clean carve-out from the larger Group C scope: gating layer reads from existing `coach_certifications.status` and `certification_type` columns, no new schema needed. Verified during recon that the live CHECK constraint allows four `certification_type` values (`ptp_coach`, `ai_transformation_coach`, `ai_transformation_ptp_coach`, `my_brainwise_coach`) and three `status` values (`in_progress`, `certified`, `suspended`) — both diverge from the Group C scope doc's stated enums. Phase 8 standalone uses the conservative gating rule: only `status = 'certified'` allows ordering; all other statuses block. Forward-compatible with Group C Phase 1's planned revocation enum extension (Q9). Decision locked: `my_brainwise_coach` certifies for all four instruments (PTP, NAI, AIRSA, HSS), same as Combined.
+
+Mapping table locked at `CERT_TYPE_TO_INSTRUMENTS` in `CoachClients.tsx`:
+- `ptp_coach` → {PTP}
+- `ai_transformation_coach` → {NAI, AIRSA, HSS}
+- `ai_transformation_ptp_coach` → {PTP, NAI, AIRSA, HSS}
+- `my_brainwise_coach` → {PTP, NAI, AIRSA, HSS}
+
+Frontend changes (single Lovable prompt): new `useEffect` fetching `coach_certifications` rows where `user_id = user.id AND status = 'certified'` on mount; derives `allowedInstrumentIds: Set<string>` via union of mapping table; filters the dialog instrument-list render at line 519; disables both "Order Assessment for New Client" (line 482) and "Order Assessment for This Client" (line 706) buttons when allowed set is empty, with tooltip "You need an active certification to order assessments"; renders empty-state message inside dialog with link to `/certifications` when allowed set is empty.
+
+Test fixture: seeded one `coach_certifications` row for `testcoach@gmail.com` (account_type `coach`, `is_internal_test = true`, no organization). Verified 7-state matrix end-to-end: Combined → PTP-only → AI Transformation only → my_brainwise_coach → in_progress → suspended → zero-rows. All cases gated correctly. `auto_grant_combined_certification` trigger fires AFTER UPDATE only (not INSERT), so direct insertion of certified rows during seeding doesn't interfere — verified during recon.
+
+Build Queue Item 37 closed. Group C Phase 8 absorbed.
+
+**Shared Results "My direct reports only" toggle SHIPPED.** Replaced the previously-considered "My Team tab" idea (never written into the build queue, only floated in conversation). Single toggle pill on the existing `/shared-results` page, only visible when `get_my_direct_reports()` RPC returns ≥1 row for the viewer.
+
+Backend: no new RPC needed. `get_my_direct_reports()` already exists (returns `out_user_id, out_email, out_full_name, out_org_level, out_department_id, out_department_name`).
+
+Frontend changes (single Lovable prompt): two new state declarations (`directReportIds: Set<string>`, `myReportsOnly: boolean`); new `useEffect` calling `get_my_direct_reports()` on mount, storing the IDs; `myReportsOnly` reset added to existing instrument-change reset block (lines 57-77 region); filter clause added to `filteredPeers` memo: `if (myReportsOnly && !directReportIds.has(p.user_id)) return false;`; toggle pill rendered conditionally between department dropdown and existing supervisor dropdown, using shadcn `Button` with variant flip on active state, `Users` icon from lucide-react (already imported).
+
+Verified end-to-end with `testclientbwe+supervisor@gmail.com` (David Supervisor, 2 direct reports: Demo Lane Nelson with PTP+AIRSA, Maya Employee with AIRSA only). Toggle hidden for non-supervisors implicitly (button doesn't render when set is empty). Toggle on AIRSA narrows correctly to both reports. Toggle on PTP narrows to direct reports who have shared PTP — zero in the current test fixture state since neither has completed PTP yet. All four filters (name, department, existing supervisor dropdown, new toggle) compose with AND semantics.
+
+The existing supervisor-filter dropdown at `SharedResults.tsx` lines 173-185 is left intact. It does something different: it filters peers by `peer.supervisor_user_id === <some other supervisor>` rather than narrowing to the viewer's own direct reports. Latent bug noted but not fixed: the supervisors list at lines 87-93 only includes a supervisor if that supervisor is also a peer in the result list, so many supervisors silently won't appear in the dropdown. Not fixing in Session 46.
 
 ## Verified bugs with explicit fix instructions
 
@@ -365,13 +393,13 @@ If both sub-tasks are deferred past launch, the cross-instrument section continu
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 46 opening
+## Top priority items for Session 47 opening
 
-### [Cole to choose] Three candidate work tracks for Session 46
+### [Cole to choose] Three candidate work tracks for Session 47
 
-Cole flagged at end of Session 45 that the next session pivots to "another section of work that is more important" than the Overview / cross-instrument scope. The Org Overview + AIRSA cross-instrument scope doc is parked at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md` for a future session — upload it at session open and the receiving session executes Phase 1 → Phase 4. Sessions 46+ pick up whatever Cole prioritizes next.
+Session 46 carved out and shipped Group C Phase 8 (Item 37) plus the Shared Results supervisor toggle. The next session can pick up any of the candidates below. The Org Overview + AIRSA cross-instrument scope doc is parked at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md` for whenever cross-instrument work gets prioritized.
 
-The three candidate priorities (any can be chosen for Session 46 opening):
+The three candidate priorities (any can be chosen for Session 47 opening):
 
 ### [HIGH] Action-Oriented Voice Redesign across NAI and PTP surfaces
 
@@ -384,6 +412,12 @@ Affected Edge Functions:
 - `generate-facet-interpretations` v23 (NAI + PTP individual)
 - `generate-nai-delta-narrative` v10
 - `generate-ptp-delta-narrative` v7
+
+### [HIGH] Group D — Coach Bulk Invite + Individual Shareable Link
+
+Now unblocked: Group C Phase 8 (Item 37) shipped in Session 46 means the certification gating layer is live. Group D's bulk-invite table dropdowns and shareable-link modal can now filter per-row instrument options against the same `CERT_TYPE_TO_INSTRUMENTS` mapping. Full Group D scope at `/mnt/user-data/uploads/BrainWise_Group_D_Scope_Coach_Bulk_Invite_v1.docx` (uploaded Session 46).
+
+Key Group D Phase 3+ caveat: touches `create-checkout` Edge Function (Lovable-fragile per standing rules). Plan Lovable prompts carefully and verify `coach_user_id` survives in Stripe metadata after every prompt that touches checkout-adjacent code.
 
 ### [HIGH] Org Overview Dashboard + AIRSA Cross-Instrument
 

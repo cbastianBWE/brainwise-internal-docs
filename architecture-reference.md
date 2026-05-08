@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v39 - Session 45 closeout (AIRSA dashboard PDF SHIPPED, AI voice rewrite v2 SHIPPED, Org Overview scope locked)*
+*v40 - Session 46 closeout (Group C Phase 8 Order Assessment gating SHIPPED, Shared Results supervisor toggle SHIPPED)*
 
 ## 1. Overview
 
@@ -679,3 +679,60 @@ If the seed needs to be regenerated or extended, mirror the structure: 50 employ
 - AI section content for the 46 new pairs (only Maya has facet_interpretations rows). The Phase 5a `generate-airsa-org-narrative` Edge Function will be tested against the Maya pair plus the org-wide aggregate.
 - PTP or NAI cross-instrument pairings for the 46 new users. The cross-instrument tab on the AIRSA org dashboard will render limited data on the test org until additional fixtures are seeded for those instruments.
 - Trend data over time. All 47 pairs share a single timestamp window. The Trends tab on the dashboard will show a single point until time-spread fixtures are added.
+
+## 12. Coach certification gating (Session 46 — Group C Phase 8 absorbed)
+
+Live state of the `coach_certifications` table diverges from the Group C scope doc as authored. Recon at session open verified actual schema constraints, then locked the gating rules forward-compatible with future Group C Phase 1 (Q9 revocation enum extension).
+
+### 12.1 Live CHECK constraints
+
+`coach_certifications.certification_type`: four allowed values, not three.
+
+| Value | Maps to instruments |
+|-------|---------------------|
+| `ptp_coach` | PTP |
+| `ai_transformation_coach` | NAI, AIRSA, HSS |
+| `ai_transformation_ptp_coach` | PTP, NAI, AIRSA, HSS (Combined) |
+| `my_brainwise_coach` | PTP, NAI, AIRSA, HSS |
+
+`coach_certifications.status`: three allowed values: `in_progress`, `certified`, `suspended`. The Group C scope doc anticipates a future revocation extension via Q9; the gating logic shipped in Session 46 is forward-compatible with that extension because the rule reads "only `certified` allows," not "anything-not-revoked."
+
+### 12.2 Gating rule (locked)
+
+In `src/pages/coach/CoachClients.tsx`, the Order Assessment dialog instrument-list filters by the union of the active coach's `certified` rows mapped through `CERT_TYPE_TO_INSTRUMENTS`. Both entry-point buttons ("Order Assessment for New Client" and "Order Assessment for This Client") feed the same `<Dialog>` instance — gating is applied once at the dialog's render block.
+
+Shipped behavior:
+- Coach with zero `certified` rows: both buttons disabled, tooltip "You need an active certification to order assessments," empty-state message inside dialog with link to `/certifications`.
+- Coach with one or more `certified` rows: dialog shows checkboxes only for instruments in the union of allowed sets. Submission logic and Stripe metadata unchanged.
+- `in_progress` and `suspended` rows do not contribute to the allowed set.
+
+### 12.3 `auto_grant_combined_certification` trigger behavior
+
+Trigger is `AFTER UPDATE` only on `public.coach_certifications`, not `AFTER INSERT`. Direct seeding of `certified` rows via INSERT does NOT fire the trigger. The trigger only auto-grants Combined when an existing in_progress row transitions to certified via UPDATE AND the user has both `ptp_coach` and `ai_transformation_coach` rows certified AND no Combined row exists.
+
+This matters for future test seeding and for any path where Combined cert is granted programmatically: if the path uses INSERT directly to a certified state, no auto-grant fires; if it uses UPDATE through certification, auto-grant fires.
+
+## 13. Shared Results supervisor toggle (Session 46)
+
+Single toggle pill on the existing `/shared-results` page filters the peer list to the viewer's own direct reports. Replaces the previously-considered "My Team tab" idea (never written into the build queue).
+
+### 13.1 Backend
+
+No new RPC. Reuses the existing `get_my_direct_reports()` SECURITY DEFINER function which returns the caller's direct reports as `out_user_id, out_email, out_full_name, out_org_level, out_department_id, out_department_name`. Function filters by `users.supervisor_user_id = auth.uid() AND deactivated_at IS NULL`, ordered by `full_name NULLS LAST, email`.
+
+### 13.2 Frontend
+
+In `src/pages/SharedResults.tsx`:
+- New state: `directReportIds: Set<string>`, `myReportsOnly: boolean` (default false).
+- New `useEffect` calls `get_my_direct_reports()` on `[user]` change, populates `directReportIds` from `out_user_id` field.
+- Toggle pill rendered conditionally on `directReportIds.size > 0` between the existing department dropdown and the existing supervisor dropdown.
+- `myReportsOnly` resets to false on instrument change (joins existing reset block at the top of the peer-fetch effect).
+- `filteredPeers` memo gains clause: `if (myReportsOnly && !directReportIds.has(p.user_id)) return false;`
+- All four filters (name search, department, existing supervisor dropdown, new toggle) compose with AND semantics.
+
+### 13.3 Existing supervisor dropdown unchanged
+
+The existing `supervisorFilter` dropdown at `SharedResults.tsx` lines 173-185 (filters peers by their `supervisor_user_id` matching some other peer's user_id) is left intact in Session 46. It does something different from the new toggle: it lets the viewer scope to "people who report to person X" rather than "people who report to me."
+
+Latent bug noted but not fixed in Session 46: the `supervisors` array is built only from peers whose `user_id` appears as another peer's `supervisor_user_id` AND who are themselves in the peer list. Many supervisors silently won't appear in the dropdown if they haven't shared their own results. Carried as a deferred quality item.
+
