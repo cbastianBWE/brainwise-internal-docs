@@ -1,10 +1,12 @@
 # BrainWise System Architecture Reference
 
-*v36 - Session 42 closeout (Phase 5a backend recon complete; AIRSA fixture seeded)*
+*v37 - Session 43 closeout (Phase 5a backend SHIPPED — RPC and Edge Function deployed and verified)*
 
 ## 1. Overview
 
-This reference captures the canonical system architecture for the BrainWise platform as of Session 42 close. AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report), and Phase 4 (PDF export) are all shipped to production and verified. Phase 5a backend recon is complete; the RPC + Edge Function build is the next launch-blocking deliverable.
+This reference captures the canonical system architecture for the BrainWise platform as of Session 43 close. Phase 5a backend (RPC `get_airsa_aggregate` and Edge Function `generate-airsa-org-narrative`) shipped in Session 43 and is verified end-to-end against the seeded fixture (47 AIRSA pairs on BrainWise Test Corp, org-wide TCI = 40.1). Phase 5b frontend is the next deliverable.
+
+Prior context as of Session 42 close: AIRSA dual-rater Phase 2 (backend workflow), Phase 3a (calculate-scores enhancement), Phase 3b (self-rater post-submit experience), Phase 3e backend (AI section generators), Phase 3e frontend (AirsaCombinedReport.tsx, 14-section combined report), and Phase 4 (PDF export) are all shipped to production and verified. Phase 5a backend recon is complete; the RPC + Edge Function build is the next launch-blocking deliverable.
 
 A production hot-fix shipped in Session 38 unblocked corporate invitation redemption. PTP Pleasure brand color flipped from yellow to forest green across the entire codebase. NAI Saturation color refactor (#FFB703 to mustard #7a5800) shipped in Session 39 via Lovable. Phase 3e frontend shipped via AirsaCombinedReport.tsx in Session 40 with multiple visual polish iterations. Phase 4 PDF export shipped in Session 41. Phase 5a backend recon completed and AIRSA test fixture seeded in Session 42 (47 pairs total in production, org-wide TCI = 40.1). The complete brand color map and the AIRSA STATUS_COLORS canonical mapping are in Section 5.
 
@@ -101,6 +103,7 @@ calculate-scores invokes this gate before deciding what to write to assessment_r
 - my_direct_reports_with_pending_ratings() - direct reports + AIRSA cycle status
 - airsa_get_my_paired_manager_status(uuid) - self-rater reads minimal paired-manager metadata for awaiting-state UI; closes the RLS gap from 2.6
 - airsa_get_paired_self_rater_name(uuid) - manager-side minimum-disclosure RPC for paired-name read by corporate_employee role
+- **get_airsa_aggregate(p_slice_type text, p_slice_value text)** - org dashboard aggregate (NEW Session 43, see §10.6 for full payload shape and §10.7 for the consuming Edge Function)
 
 ### 2.9 Edge Functions (rater-flow)
 
@@ -360,7 +363,7 @@ Two banners above the Users tab Card showing supervisor health (no supervisor as
 
 Class A: JWT via auth.getClaims (user context, frontend-callable)
 
-- Used by: airsa-supervisor-reminder v2, calculate-scores, invitation_send
+- Used by: airsa-supervisor-reminder v2, calculate-scores, invitation_send, generate-airsa-org-narrative v1 (primary path)
 - Will be used by: generate-airsa-org-narrative (Phase 5a, mirrors generate-dashboard-narrative v22)
 
 Class B: x-internal-secret header (value INTERNAL_FUNCTION_SECRET from Edge Function Secrets, validated with constant-time `safeEqual` comparison)
@@ -395,6 +398,9 @@ Class C: x-dispatcher-secret (departure_dispatcher_shared_secret)
 - NEW (Session 42): For dashboard-level AI generators that are user-triggered from the frontend (Regenerate AI button), use Class A JWT via auth.getClaims, not Class B internal-secret. The Class B path is reserved for service-to-service calls (e.g., calculate-scores fan-out to individual report generators). Pattern reference: generate-dashboard-narrative v22.
 - NEW (Session 42): When designing org-level aggregations that include a supervisor-rollup view, do NOT add a `'supervisor'` slice_type. The existing `'team'` slice already routes by `supervisor_user_id`. Iterate supervisors INSIDE the RPC body for per-supervisor rollups instead of adding a new slice enum value. This avoids a CHECK constraint migration and keeps slice_type semantics clean.
 
+- NEW (Session 43): n<5 suppression in aggregate RPCs must be applied to the eligible participant pool size (`array_length(v_participant_ids)`), NOT the skill-pair count or any product of participants × items. Suppressing on a participant × items product silently allows single-participant slices through, breaking privacy guarantees. Caught and fixed during Session 43 verification of `get_airsa_aggregate`.
+- NEW (Session 43): When an Edge Function calls a SECURITY DEFINER RPC on behalf of a user, the RPC client must be created with the user's JWT forwarded as Authorization header: `createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: 'Bearer <userToken>' } } })`. This makes `auth.uid()` resolve correctly inside the RPC. Service-role clients bypass `auth.uid()` entirely (returns NULL), which would break SECURITY DEFINER caller validation. The Class B path uses the service-role client because there's no user JWT, and instead requires `organization_id` in the request body.
+
 ## 9. Test fixtures
 
 Test org name: BrainWise Test Corp.
@@ -413,9 +419,9 @@ Session 39 fixture state at close:
 
 When a new session begins, look up the current state via Supabase rather than relying on values written in prior closeouts. The full Session 42 seed structure is documented in §11.
 
-## 10. AIRSA Company Dashboard design (Session 41 strategic frame, Session 42 recon-corrected, build deferred to Phase 5a/5b)
+## 10. AIRSA Company Dashboard (Session 41 strategic frame, Session 42 recon, Phase 5a backend SHIPPED Session 43, Phase 5b frontend remaining)
 
-The strategic frame for the AIRSA org dashboard is locked. Build is split into Phase 5a backend and Phase 5b frontend per the Phase 3 split precedent. Phase 5a recon completed in Session 42 with four corrections folded into the sections below.
+The strategic frame for the AIRSA org dashboard is locked. Phase 5a backend (RPC + Edge Function) shipped Session 43 and is verified against the seeded fixture. Phase 5b frontend is the remaining piece. The full RPC payload spec is in §10.6 and the Edge Function spec is in §10.7.
 
 ### 10.1 Central thesis
 

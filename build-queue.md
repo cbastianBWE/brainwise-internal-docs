@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v34 - Session 42 closeout*
+*v35 - Session 43 closeout*
 
 ## Priority key
 
@@ -45,6 +45,23 @@ Recon-driven decision corrections from the Session 41 frame:
 - Domain coloring for AIRSA org dashboard deferred to Phase 5b. Start from individual results page colors; pull from the 8-9 brand palette colors.
 
 No bugs surfaced or shipped in Session 42 (recon + seed only).
+
+
+## Session 43 deltas summary
+
+Phase 5a backend SHIPPED. Both pieces deployed and verified end-to-end against the Session 42 seeded fixture. No Lovable credits used.
+
+**RPC: `get_airsa_aggregate(p_slice_type, p_slice_value)`** applied via two migrations (initial `create_get_airsa_aggregate_rpc`, then `fix_get_airsa_aggregate_suppression_check` to correct the suppression check from skill-pair count to participant pool size). SECURITY DEFINER, mirrors `get_instrument_aggregate` caller validation including supervisor-with-direct-reports gate against `corporate_contracts.supervisor_dashboard_enabled`. Returns full §10.6 JSONB shape: tci_overall, alignment_rate, blind_spot_rate, underestimate_rate, status_distribution, skill_aggregates (24 skills with CPS), domain_aggregates (8 domains with CPS), rankings (growth_skills, strength_skills, growth_domains, strength_domains, all CPS-sorted), manager_calibration (only supervisors with n>=3 reports). n=5 suppression on eligible pool. n=3 suppression on Manager Calibration entries. Instrument is implicit (always INST-003). Manager Calibration computed inside the RPC by iterating supervisors. GRANT EXECUTE TO authenticated.
+
+**Edge Function: `generate-airsa-org-narrative` v1** deployed. Hybrid Class A + Class B auth: Class A JWT primary (frontend Regenerate AI button), Class B (X-Internal-Secret with `safeEqual` constant-time comparison) for future programmatic regen requiring `organization_id` in body. Mirrors `generate-dashboard-narrative` v22 structure. `claude-opus-4-6`, max_tokens 7000. AIRSA-specific calibration-focused prompt with 5-status framework, top-5 growth/strength rankings, top-3 manager blind-spot/underestimate panels. Banned words and phrases match individual AIRSA generators. INSERTs to `org_dashboard_narratives` append-only with `instrument_id='INST-003'`, `index_score=TCI`, full RPC payload in `dimension_scores`, AI JSON in `narrative_text`. Shared utilities: `_shared/secrets.ts` (safeEqual) and `_shared/errors.ts` (sanitized serverError). SOC 2 markers in code: CC6.1 hybrid auth + safeEqual, CC6.3 caller validation + org isolation via SECURITY DEFINER RPC, CC7.2 sanitized 5xx errors with no PII.
+
+**RPC verifications passed:** TCI 40.1 against fixture (matches pre-build verification); status distribution 24.5/15.6/19.0/20.3/20.7; 24 skill_aggregates and 8 domain_aggregates returned; top growth = Skill 10 Identity Flexibility (cps_growth 1.803); top strength = Skill 23 Algorithmic Vigilance (85% confirmed_strength); 10 supervisors meeting n>=3 threshold; department slice 432 pairs/19 eligible/TCI 37.3; org_level IC slice 816 pairs/34 eligible/TCI 40.6; team slice with 5 reports 120 pairs/TCI 37.5; suppression triggers correctly at 1-report and 3-report teams; INSERT path simulation confirms all CHECK constraints pass and `index_score=40.10`.
+
+**One implementation bug caught and fixed during verification:** First version of the RPC suppressed on `pair_count` (eligible × 24 skills), which would have allowed n=1 team slices through. Fixed in second migration to check `array_length(v_participant_ids)` directly, mirroring `get_instrument_aggregate` semantics. Documented as architectural constraint in arch-ref §8.
+
+**Not verified by Session 43:** Full Anthropic-API-to-JSON-parse-to-INSERT happy path. Auth gate, RPC fetch, and INSERT shape verified individually but not chained through a real session token. First frontend call in Phase 5b will validate this. Edge function deployed v1 active, 282ms cold start, auth gate confirmed firing in logs.
+
+Session 43 also consolidated all individual-instrument AI tone work into a single MEDIUM batch item (see "AI tone pass — DEFERRED BATCH" section below).
 
 ## Verified bugs with explicit fix instructions
 
@@ -200,9 +217,9 @@ Three bugs fixed across v2 and v3 prompts:
 
 Final PDF: 9 pages for Maya dual-rater fixture (cover + heatmap + Profile overview + What this means + Action plan + Lollipop + Conversation guide + Top priorities + Cross-instrument placeholder + Skill reference + Methodology). All toggles work; self-only variant verified with `-SelfOnly` filename suffix and lollipop single-dot mode.
 
-### Phase 5 [HIGH but POST-LAUNCH OK, BACKEND RECON COMPLETE in Session 42]: AIRSA org dashboard
+### Phase 5 [HIGH but POST-LAUNCH OK, BACKEND SHIPPED in Session 43]: AIRSA org dashboard
 
-Strategic frame designed and locked Session 41. Backend recon completed and corrections applied Session 42. Build is split into Phase 5a backend (RPC + Edge Function) and Phase 5b frontend (5 tabs).
+Strategic frame designed and locked Session 41. Backend recon completed Session 42. Phase 5a backend (RPC + Edge Function) shipped Session 43 and verified against the seeded fixture. Phase 5b frontend (5 tabs) is the remaining piece.
 
 **Central thesis:** AIRSA's dashboard answers a structurally different question than PTP/NAI. Where PTP/NAI tell leadership about population states (threat reactivity, cognitive friction), AIRSA tells leadership about **calibration** — how accurately the organization sees its own AI talent. The data shape is fundamentally different: AIRSA is the only dual-rater instrument, so the org-level data isn't a distribution of scores but a distribution of agreements and disagreements.
 
@@ -260,7 +277,7 @@ Match PTP/NAI exactly. Live RPC `get_airsa_aggregate(p_slice_type, p_slice_value
 - Manager Calibration tab: minimum 3 reports per manager
 - Suppressed everything renders gray with "n<X" tooltip
 
-**Phase 5a backend** (new RPC + new Edge Function). 8-block recon checklist completed in Session 42. All recon-driven corrections folded into this section and into architecture-reference.md §10.
+**Phase 5a backend** [SHIPPED in Session 43]. RPC `get_airsa_aggregate` and Edge Function `generate-airsa-org-narrative` v1 both deployed and verified end-to-end against the seeded fixture. Full RPC payload shape with worked example in architecture-reference.md §10.6. Edge Function auth model and SOC 2 markers in arch-ref §10.7 and §8.
 
 **Phase 5b frontend** (5 tabs of UI; Calibration Map; Manager Calibration tab; cross-instrument tab). Mirror NAI's `CompanyDashboard.tsx` patterns where applicable.
 
@@ -282,23 +299,41 @@ If not done before launch, the cross-instrument section renders empty for users 
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 43 opening
+## Top priority items for Session 44 opening
 
-### [HIGH] Phase 5a backend build — RPC
+### [HIGH] Phase 5b frontend build — AIRSA org dashboard
 
-`get_airsa_aggregate(p_slice_type text, p_slice_value text)` returning JSONB matching architecture-reference §10.6 shape (TCI, alignment_rate, blind_spot_rate, underestimate_rate, domain_aggregates, skill_aggregates, rankings, calibration_map, manager_calibration). SECURITY DEFINER. Mirrors `get_instrument_aggregate` caller validation pattern. n=5 suppression for skill/department cells; n=3 suppression for Manager Calibration entries. Instrument is implicit (always INST-003) so no `p_instrument_id` parameter. Manager Calibration data is computed inside the RPC by iterating supervisors with their direct-report TCI rollups; no separate `'supervisor'` slice_type required.
+Single coordinated Lovable prompt covering 5 tabs of UI mirroring NAI's `CompanyDashboard.tsx` patterns. Backend is ready: RPC `get_airsa_aggregate` returns the full §10.6 shape, Edge Function `generate-airsa-org-narrative` is deployed at v1. Frontend wiring is the only remaining piece.
 
-### [HIGH] Phase 5a backend build — Edge Function
+First sub-task before writing the Lovable prompt: pull `src/pages/company/CompanyDashboard.tsx` and related files via GitHub MCP (or curl with line ranges if files are too large) so the AIRSA mirroring is precise. Identify which patterns to reuse verbatim and which need AIRSA-specific variants (Calibration Map, Manager Calibration tab, status pills with STATUS_COLORS). Specifically check how NAI CompanyDashboard handles slice controls, AI narrative regeneration, and the skill-inventory-style sortable table.
 
-`generate-airsa-org-narrative` (Class A JWT via `auth.getClaims`, `claude-opus-4-6`, `max_tokens` 7000). Inserts to `org_dashboard_narratives` with `instrument_id = 'INST-003'`. AIRSA-specific calibration-focused prompt. Banned phrases match individual-level AIRSA generators (no "this creates", no "this suggests you", etc.). Mirrors `generate-dashboard-narrative` v22 structure.
+Second sub-task: lock domain coloring before writing the prompt. Pull individual AIRSA results page palette from AirsaCombinedReport.tsx and assign 8 colors to the 8 domains. Avoid Green+Teal pairing in pastel contexts.
 
-### [HIGH] AI tone pass on the six AIRSA AI generators
+5 tabs: Overview / Domains / Skill Inventory / Manager Calibration / Trends + Cross-Instrument. Calibration Map as visual centerpiece with orange ▲ (top growth) and green ◆ (top strength) priority markers tracking the active slice's CPS rankings. Greatest Growth Opportunities / Strengths to Capitalize panels on Overview using CPS-ranked top 2 skills + top 2 domains from the RPC's `rankings` payload. AI workforce narrative as inline expandable card on Overview tab (NOT a separate tab). Manager Calibration tab consumes the `manager_calibration` array directly; suppression already applied by RPC at n>=3.
 
-Carried from Sessions 41 and 42. Final phrasing tweaks across all six AIRSA AI functions. Specific items: residual "this creates" leakage in profile-overview, slight inference-overreach phrasing, fine-tuning toward purer factual observation. Now evaluable end-to-end on Maya's fixture in both on-screen frontend and PDF surfaces.
+## AI tone pass — DEFERRED BATCH
 
-### [HIGH] Phase 5b frontend build (deferred to its own session)
+### [MEDIUM] AI generator tone pass across all instrument-level generators
 
-Mirror NAI's `CompanyDashboard.tsx` patterns. 5 tabs: Overview / Domains / Skill Inventory / Manager Calibration / Trends + Cross-Instrument. Calibration Map as visual centerpiece with orange ▲ (top growth) and green ◆ (top strength) priority markers. Greatest Growth Opportunities / Strengths to Capitalize panels on Overview using CPS-ranked top 2 skills + top 2 domains. AI workforce narrative as inline expandable card on Overview tab. Domain coloring derived from the individual AIRSA results page palette.
+Consolidated batch covering all AI Edge Functions on the platform. Specific items previously logged from Sessions 41 and 42 (residual "this creates" leakage, slight inference-overreach phrasing, fine-tuning toward purer factual observation) plus a full review of language quality across:
+
+- generate-airsa-profile-overview (v5)
+- generate-airsa-what-this-means (v3)
+- generate-airsa-action-plan (v3)
+- generate-airsa-conversation-guide (v3)
+- generate-airsa-top-priorities (v2)
+- generate-airsa-cross-instrument (v2)
+- generate-airsa-org-narrative (v1, NEW Session 43)
+- generate-dashboard-narrative (v22, PTP+NAI org)
+- generate-facet-interpretations (v23, PTP+NAI individual)
+- generate-cross-instrument-recommendations (v7)
+- generate-nai-delta-narrative (v10)
+- generate-ptp-delta-narrative (v7)
+- ai-chat (v29)
+
+Approach: pull all prompt blocks side-by-side, identify shared banned-words list, identify shared tone-discipline rules, write a single cross-cutting tone-pass spec, then re-deploy each function with refined prompt. Run before launch but not launch-blocking. Do NOT touch generator infrastructure or auth — prompt body only.
+
+Target session: post-Phase 5b frontend, pre-launch. Estimated 1 session if batched well.
 
 ## Session 40 design decisions locked
 
@@ -420,6 +455,20 @@ Renders as expandable card on Overview, NOT as a separate sixth tab. Top 3 recom
 ### [SHIPPED in Session 39]: NAI Saturation color alignment
 
 Decision shipped. NAI Saturation (DIM-NAI-05) is now mustard #7a5800 across all NAI individual report files, matching the dashboards. After this ship, #FFB703 exists only as the --bw-amber brand token (used by --warning semantic and other UI elements).
+
+## Session 43 design decisions locked
+
+### get_airsa_aggregate suppression check is on eligible pool, not pair count
+
+Initial implementation suppressed on `pair_count` (eligible_count × 24 skills), which would have allowed n=1 team slices through. Fixed in second migration to check `array_length(v_participant_ids)` directly, matching `get_instrument_aggregate` semantics. Documented as architectural constraint in arch-ref §8.
+
+### generate-airsa-org-narrative is hybrid Class A + Class B
+
+Class A primary for frontend Regenerate AI button (forwards user JWT to RPC client so `auth.uid()` resolves inside SECURITY DEFINER RPC). Class B retained as hybrid path for future programmatic regen, requiring `organization_id` in body since there's no JWT to derive it from. Mirrors AIRSA individual generator hybrid pattern.
+
+### CPS tie-breakers in RPC ranking arrays
+
+Growth ranking: `ORDER BY cps_growth DESC NULLS LAST, blind_spot_pct DESC NULLS LAST` (matches Session 41 design). Strength ranking: `ORDER BY cps_strength DESC NULLS LAST, n DESC` (more reliable signal preferred). Locked in RPC body, not configurable from caller.
 
 ## Carried items from prior sessions (unchanged)
 
