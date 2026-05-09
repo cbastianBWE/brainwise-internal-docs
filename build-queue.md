@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v38 - Session 46 closeout*
+*v40 - Sessions 47 + 48 closeout (combined)*
 
 ## Priority key
 
@@ -151,6 +151,76 @@ Frontend changes (single Lovable prompt): two new state declarations (`directRep
 Verified end-to-end with `testclientbwe+supervisor@gmail.com` (David Supervisor, 2 direct reports: Demo Lane Nelson with PTP+AIRSA, Maya Employee with AIRSA only). Toggle hidden for non-supervisors implicitly (button doesn't render when set is empty). Toggle on AIRSA narrows correctly to both reports. Toggle on PTP narrows to direct reports who have shared PTP — zero in the current test fixture state since neither has completed PTP yet. All four filters (name, department, existing supervisor dropdown, new toggle) compose with AND semantics.
 
 The existing supervisor-filter dropdown at `SharedResults.tsx` lines 173-185 is left intact. It does something different: it filters peers by `peer.supervisor_user_id === <some other supervisor>` rather than narrowing to the viewer's own direct reports. Latent bug noted but not fixed: the supervisors list at lines 87-93 only includes a supervisor if that supervisor is also a peer in the result list, so many supervisors silently won't appear in the dropdown. Not fixing in Session 46.
+
+## Session 47 deltas summary
+
+Group D backend (Phases 1-3 of the locked Group D scope) shipped end-to-end. Schema additions to `coach_clients`: `expires_at`, `revoked_at`, `invitation_source`, `client_first_name`, `client_last_name`. New `coach_pending_bulk_batches` table for stripe-webhook to recreate rows on coach-paid bulk checkout completion. New RPCs: `bulk_coach_invitation_create` (per-row BEGIN/EXCEPTION isolation, 75-row cap, certification gating reuse), `coach_invitation_revoke` (RPC + Edge Function pair). New Edge Function `bulk_coach_invite` v2. `create-checkout` extended with `coach_bulk_order` mode (Lovable-fragile per standing rule — verify `coach_user_id` after every Lovable prompt touching checkout-adjacent code). `stripe-webhook` v23 with new `coach_bulk_order` branch iterating over batch metadata, generating per-row coupons via `recalculateCombinedCouponForEmail` helper.
+
+Session 47 was backend-only. Session 47-to-48 handoff was never written; Session 48 verified Session 47's backend during Phase 4-5 frontend work.
+
+## Session 48 deltas summary
+
+Single largest-shipping session in BrainWise history. Group D Phases 4-5-6 shipped (frontend + polish), email infrastructure shipped, refund automation shipped, terms of service updated.
+
+**Group D Phase 4-5 frontend shipped.** Three Lovable prompts plus remediation. `BulkInviteModal.tsx` (607 lines, three-stage flow: Validate / Preview / Dispatch+Results, CSV upload via xlsx@^0.18.5, 75-row cap, cert gating, sticky defaults, payment_mode self_pay/coach_paid lowercase). `ShareableLinkModal.tsx` (287 lines, qrcode.react@^4.0.1 dependency added, both self-pay and coach-paid paths). `PendingInvitations.tsx` (Card→Tab refactor, query filters revoked_at IS NULL + expires_at, per-row Copy link / Revoke / Resend actions). `CoachClients.tsx` updated with DropdownMenu (Single client / Bulk invite / Generate shareable link), `perAssessmentPrice` state querying `subscription_plans` for dynamic price ($29.99 Per Assessment), URL parameter handler for `?bulk_checkout=success|cancelled`.
+
+**Group D Phase 6 polish completed in two prompts.** Polish prompt (8 changes): Tooltip primitive replaces `title` attribute on disabled DropdownMenu trigger, empty-state cert gating, new stat semantics (`totalSignedUpClients`, `pendingInvitationsCount`, `assessmentsPending`), 4-card grid layout, `email_type` and `source` parameters added to send-email calls, `border-red-*` → `border-destructive`, PendingInvitations table tightening (MMM d dates, Coach/Self/Bulk/Single/Link badges). Stat fix prompt: `pendingInvitationsCount` filter corrected to exclude revoked + expired rows (was showing 23 instead of 21).
+
+**email_logs table shipped (Option A + Option B).** Schema: id, email_type, recipient_email, subject, resend_message_id, send_status (sent|failed), error_message, source, sent_at, delivered_at, bounced_at, complained_at, last_status_event, last_status_at. RLS: super_admin SELECT only via account_type check, service role bypasses. 4 indexes (recipient_sent_at, resend_message_id partial, failures partial, problem_events partial). pg_cron `purge_email_logs_90d` daily 03:00 UTC. `send-email` v8: `logEmailDispatch` helper writing to email_logs on every code path with optional `email_type` and `source` parameters (default `unknown`). Captures Resend message_id.
+
+**Resend webhook integration shipped.** `resend-webhook` Edge Function v1 verifies Svix signature (HMAC-SHA256 with `whsec_` prefix stripped), 5-minute timestamp freshness window. Looks up email_logs by resend_message_id, updates delivery status. If no match (Auth-system email), inserts new row with `email_type='auth_or_external'`. Endpoint: `https://svprhtzawnbzmumxnhsq.supabase.co/functions/v1/resend-webhook`. Subscribed events: email.sent, email.delivered, email.bounced, email.complained, email.delivery_delayed. Secret stored in Supabase Edge Function Secrets as `RESEND_WEBHOOK_SECRET`. Verified end-to-end: send-email writes row → Resend processes → webhook fires ~1s later → delivered_at populated.
+
+**`coach_invitation_resend` Edge Function v1 shipped.** Per-client scope: clicking Resend on any pending row reminds client about ALL pending instruments under that coach. 24-hour rate limit per recipient_email + email_type='coach_reminder_pending' enforced via email_logs query. Class A JWT auth via auth.getClaims. shareable_link rows treated as first-send template ("Your coach prepared an assessment for you"). Other sources use reminder template ("Reminder: Your BrainWise Assessment is Waiting"). Error codes: unauthorized, not_found, rate_limited, nothing_to_remind, send_failed. PendingInvitations.tsx Resend button wired up with handleResend → toast variants per result. Rate limit verified end-to-end (second click within 24h returns "Reminder already sent recently" toast).
+
+**Expiry sweep + auto-refund automation shipped.** Schema additions to `coach_clients`: `refunded_at`, `stripe_refund_id`, `refund_amount`, `refund_failure_reason`. Index on refunded_at DESC partial. New Edge Function `sweep_expired_invitations` v3 (Class C cron auth via `DISPATCHER_SHARED_SECRET` env, matches dispatch-grace-reminders convention). Filter: expires_at IS NOT NULL AND expires_at < NOW() AND revoked_at IS NULL AND assessment_id IS NULL. Per-row: stamps revoked_at → `recalcCouponAfterRevoke` (deletes Stripe coupon if last row, else recreates at lower amount) → `processAutoRefund` (per refund policy gate). Trigger metadata: `auto_expiry_sweep`. `coach_invitation_revoke` v3: added `processAutoRefund` helper alongside existing `recalcCouponAfterRevoke`. Trigger metadata: `manual_revoke`. Returns `refund: {refunded, amount, refund_id, reason}` in response. pg_cron `sweep_expired_coach_invitations` schedule moved from raw SQL UPDATE to `net.http_post` calling sweep_expired_invitations Edge Function. Schedule `45 3 * * *` (03:45 UTC daily, staggered after email_logs purge at 03:00 and dispatch_grace_reminders at 03:15). Vault secret name: `departure_dispatcher_shared_secret`.
+
+**Locked refund policy (decision):**
+- Auto-refund eligibility gate (ALL must be true): `coupon_redeemed = false AND assessment_id IS NULL AND payment_age <= 90 days AND payment_intent_id IS NOT NULL AND coupon_amount > 0`
+- Both manual revoke AND automatic expiry trigger auto-refund through same `processAutoRefund` helper
+- Individual purchases: 14-day refund window if assessment not started; manual processing only (no auto-refund Edge Function)
+- Corporate contracts: all sales final per executed contract
+- Verified end-to-end: real $29.99 refund processed against pi_3TVBck2FY7qIyIXA0xp2yuMN, refund_id `re_3TVBck2FY7qIyIXA0oApv0dD`, full pipeline (revoke → coupon deletion → refund → DB stamp) executed in ~1 second
+
+**Schema additions to `assessment_purchases` for individual refund tracking** (manual processing only, no auto-refund): `refunded_at`, `stripe_refund_id`, `refund_amount`, `refund_failure_reason`, `refund_processed_by` (UUID FK users — audits which super_admin approved the refund).
+
+**Terms of Service updated to v2** (effective May 9, 2026). Section 5.3 Coach-paid client assessments rewritten to reference auto-refund policy. Section 5.5 Refund policy rewritten with three buckets (Individual / Coach-paid / Corporate) and explicit eligibility rules. File path: `src/content/legal/termsContent.ts` (Terms.tsx is a thin wrapper consuming this content via LegalPageLayout).
+
+## Group C three-week sequencing plan (locked Session 48)
+
+**Cohort target: three weeks from Session 48 close.** Decision: build Option A (full authoring UI), not Option C (SQL seed). Cole has PTP content drafted and prefers to author in the UI. Estimate: 10 sessions over 21 days, ~3.3 sessions per week. Buffer is thin; one lost session is recoverable, two is not.
+
+### Session 49 (Group A audit prequel — small)
+Schema additions per Group A scope Section 4.3.2:
+- `super_admin_audit_log`: ip_address inet, user_agent text, reason text, before_value jsonb, after_value jsonb, mode text, expires_at timestamptz, ended_at timestamptz, end_reason text
+- `company_admin_audit_log`: reason text, before_value jsonb, after_value jsonb, super_admin_acting_as_user_id uuid (nullable)
+- New `log_super_admin_action()` helper RPC with consistent argument signature
+
+Why first: Group C uses Group A audit infrastructure for revoke certification (Q9), direct enrollment (Q4B), mentor assignment (Q3). Without these columns, every super-admin Group C action gets retrofitted later. Estimate: 1 session, possibly half-session if clean.
+
+### Sessions 50-58 (Group C Phases 1-10, Option A)
+Compressed phase ordering:
+- **Session 50**: Phase 1 (Schema, all 17 tables) + Phase 2 start (Core RPCs)
+- **Session 51**: Phase 2 finish + Phase 3 (Notifications subsystem)
+- **Session 52**: Phase 4 start (Authoring UI cert path / curriculum / module CRUD)
+- **Session 53**: Phase 4 finish (Content item editor polymorphic UI, quiz authoring) — Cole starts authoring PTP content after this lands
+- **Session 54**: Phase 5 start (Trainee learning UI shell + first 3 content viewers)
+- **Session 55**: Phase 5 finish (remaining content viewers, video progress, cert path detail)
+- **Session 56**: Phase 6 (Mentor review UI)
+- **Session 57**: Phase 7 (Actor flow) + Phase 8 verification (Order Assessment gating already shipped Session 46)
+- **Session 58**: Phase 9 (Resources tab redesign) + Phase 10 (Polish)
+
+### Sessions 59-65 (Group A remaining work)
+Impersonation, Tier 1/2/3 user editing, audit reporting UI, user access history page. Independent of Group C completion. Sequencing flexible based on cohort launch needs.
+
+### Parallel work (Cole)
+Authoring PTP cert path content in the UI starting Session 53 onward. Content needed: 5 curricula minimum, ~20 modules, content items across all 7 types. By cohort launch date, content must be authored, mentor assigned, trainees enrolled.
+
+### Risk register
+- Lovable disasters on polymorphic content editor (Phase 4) — highest single risk
+- Decision stalls during build (build sessions need fast Cole responsiveness)
+- Cohort content authoring stalling — Cole is the bottleneck if authoring runs slower than UI ships
+- Notification subsystem bugs cascading into all later phases (Phase 3 needs thorough impersonation testing)
+- 21 days lost to ~1 missed session is recoverable; 2 missed sessions threaten the date
 
 ## Verified bugs with explicit fix instructions
 
@@ -393,19 +463,48 @@ If both sub-tasks are deferred past launch, the cross-instrument section continu
 - Verify Cole Plummer's existing superseded result does not appear in his account UI
 - Existing cron jobs (if any) that scan assessment_results properly skip superseded_at IS NOT NULL rows
 
-## Top priority items for Session 47 opening
+## Top priority items for Session 49 opening
 
-### [Cole to choose] Three candidate work tracks for Session 47
+### [LAUNCH-BLOCKING] Group A audit prequel — Session 49 entire focus
 
-Session 46 carved out and shipped Group C Phase 8 (Item 37) plus the Shared Results supervisor toggle. The next session can pick up any of the candidates below. The Org Overview + AIRSA cross-instrument scope doc is parked at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md` for whenever cross-instrument work gets prioritized.
+Session 48 closed with Group D end-to-end shipped, refund automation verified, and a locked three-week sequencing plan for Group C (full LMS + coach certification with Option A authoring UI). Session 49 is the small audit-infrastructure prequel that unblocks Group C builds.
 
-The three candidate priorities (any can be chosen for Session 47 opening):
+**Scope (single session):**
 
-### [HIGH] Action-Oriented Voice Redesign across NAI and PTP surfaces
+1. Schema additions to `super_admin_audit_log`:
+   - `ip_address inet`
+   - `user_agent text`
+   - `reason text`
+   - `before_value jsonb`
+   - `after_value jsonb`
+   - `mode text` (impersonation observe/act, nullable)
+   - `expires_at timestamptz`
+   - `ended_at timestamptz`
+   - `end_reason text`
 
-Replace neuropsychology consulting prose with scannable action-oriented language using expandable detail cards across six surfaces: NAI dashboard UI/PDF, PTP dashboard UI/PDF, NAI individual results UI/PDF, PTP individual results UI/PDF. The AIRSA voice work in Session 45 (`generate-airsa-org-narrative` v2 prompt) is the canonical voice template — apply same VOCABULARY RULES table, BANNED words/phrases, SECTION STRUCTURES discipline to NAI and PTP generators.
+2. Schema additions to `company_admin_audit_log`:
+   - `reason text`
+   - `before_value jsonb`
+   - `after_value jsonb`
+   - `super_admin_acting_as_user_id uuid` (nullable; populated only when action was taken by super admin during impersonation)
 
-This is a sequencing dependency for the Org Overview work: Overview will pull NAI/PTP narrative summaries as headlines, and if those are still in the old clinical voice while AIRSA is in the new voice, Overview will read inconsistently. Voice Redesign before Overview build is the right order.
+3. New `log_super_admin_action()` helper RPC with consistent argument signature: actor, target, action_type, before, after, reason, mode
+
+4. Verify schema via execute_sql post-migration
+
+**Acceptance:** all columns exist, helper RPC callable from SECURITY DEFINER context, ready to be consumed by Group C super-admin actions (revoke certification, direct-enroll user, assign mentor).
+
+This is intentionally small. Estimate: 1 session, possibly half-session if clean.
+
+### [LAUNCH-BLOCKING] Group C — Coach Certification + LMS (Sessions 50-58)
+
+10-session plan locked Session 48. See "Group C three-week sequencing plan" earlier in this build queue. Option A confirmed (full authoring UI). Cole owns content authoring as parallel task starting Session 53.
+
+Full Group C scope at `/mnt/project/BrainWise_Group_C_Scope_Coach_Certification_v1.docx` (uploaded Session 48). The scope's Q7 decision is locked at Option A despite the scope's hedged language.
+
+### [HIGH, deferred] Action-Oriented Voice Redesign across NAI and PTP surfaces
+
+Carried forward from Session 47 priority list. The voice work is sequenced AFTER Group C ships because Group C is launch-blocking for the cohort and voice redesign isn't. Apply the canonical AIRSA voice template (`generate-airsa-org-narrative` v2 prompt's VOCABULARY RULES, BANNED words/phrases, SECTION STRUCTURES discipline) to NAI and PTP generators.
 
 Affected Edge Functions:
 - `generate-dashboard-narrative` v22 (NAI + PTP org)
@@ -413,19 +512,27 @@ Affected Edge Functions:
 - `generate-nai-delta-narrative` v10
 - `generate-ptp-delta-narrative` v7
 
-### [HIGH] Group D — Coach Bulk Invite + Individual Shareable Link
+### [HIGH, deferred] Group A remaining work (Sessions 59-65)
 
-Now unblocked: Group C Phase 8 (Item 37) shipped in Session 46 means the certification gating layer is live. Group D's bulk-invite table dropdowns and shareable-link modal can now filter per-row instrument options against the same `CERT_TYPE_TO_INSTRUMENTS` mapping. Full Group D scope at `/mnt/user-data/uploads/BrainWise_Group_D_Scope_Coach_Bulk_Invite_v1.docx` (uploaded Session 46).
+Impersonation, Tier 1/2/3 user editing, audit reporting UI, user access history page. After Group C cohort launches.
 
-Key Group D Phase 3+ caveat: touches `create-checkout` Edge Function (Lovable-fragile per standing rules). Plan Lovable prompts carefully and verify `coach_user_id` survives in Stripe metadata after every prompt that touches checkout-adjacent code.
+### [HIGH, deferred] Org Overview Dashboard + AIRSA Cross-Instrument
 
-### [HIGH] Org Overview Dashboard + AIRSA Cross-Instrument
-
-Full scope at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md`. 4 phases, 3-5 sessions estimated. Recommended sequence after Voice Redesign completes.
+Full scope at `/mnt/user-data/outputs/org-overview-and-airsa-cross-instrument-scope.md`. 4 phases, 3-5 sessions estimated. Sequenced after Group A remaining work.
 
 ### [MEDIUM, carried] Outstanding pre-launch quality items
 
 Various small items carried from prior sessions: NAI/PTP latent slice-control bugs (deferred for post-launch per Session 44), aligned_pct/confirmed_gap_pct split on Domains tab (Session 44 open question), and the AI tone pass DEFERRED BATCH below for any remaining tone leakage.
+
+### [MEDIUM, new from Session 48] Build queue items added during Session 48
+
+- **Brand error color decision.** `--destructive` HSL `0 72% 55%` reads as a non-brand red. Decide on a brand-aligned error color (likely a darker terracotta/rust orange) that doesn't conflict with the existing `--brand-orange` CTA color but is visibly distinct.
+- **Edge Function audit + email_type/source backfill.** Identify Edge Functions calling Resend directly vs through send-email. Backfill `email_type`/`source` parameters on Edge Functions that currently route through send-email without these fields: stripe-webhook, bulk_coach_invite, invite-coach, send-departure-emails, generate-departure-export, others TBD.
+- **Extract shared coupon/refund helper module.** `recalcCouponAfterRevoke` and `processAutoRefund` are duplicated verbatim between `coach_invitation_revoke` and `sweep_expired_invitations` Edge Functions. Extract to shared helper file. Build queue impact when changing coupon math: must update both copies in lockstep until extraction lands.
+- **Level 3 archive setup for email_logs** (pre-launch priority — SOC 2 evidence retention beyond 90-day rolling window).
+- **Super admin refund processing UI for individual purchases.** UI surface in /super-admin showing: user's `assessment_purchases` rows with eligibility status (within 14 days? unused?), a "Process refund" button gating on Tier 2 audit (justification ≥ 10 chars + 5-min fresh MFA per Group A), Edge Function `process_individual_refund` (super-admin only) that takes an `assessment_purchase_id`, validates calling user is super_admin, calls Stripe refunds API, stamps the row with `refunded_at`, `stripe_refund_id`, `refund_amount`, `refund_processed_by`. Depends on Group A audit prequel being complete.
+- **Pricing-reads refactor** (carried from Session 38). Eliminate hardcoded price IDs in favor of `subscription_plans` lookups (post-launch).
+- **Token-based invitation upgrade (Path B).** Migrate coach_clients invitations from email-prefill to single-use token model. Closes pre-existing security concern documented in Group D scope. Build session: dedicated, not combined with other work.
 
 ## AI tone pass — DEFERRED BATCH
 

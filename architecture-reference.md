@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v40 - Session 46 closeout (Group C Phase 8 Order Assessment gating SHIPPED, Shared Results supervisor toggle SHIPPED)*
+*v42 - Sessions 47 + 48 closeout (Group D end-to-end SHIPPED, email_logs + Resend webhook + auto-refund automation SHIPPED)*
 
 ## 1. Overview
 
@@ -735,4 +735,238 @@ In `src/pages/SharedResults.tsx`:
 The existing `supervisorFilter` dropdown at `SharedResults.tsx` lines 173-185 (filters peers by their `supervisor_user_id` matching some other peer's user_id) is left intact in Session 46. It does something different from the new toggle: it lets the viewer scope to "people who report to person X" rather than "people who report to me."
 
 Latent bug noted but not fixed in Session 46: the `supervisors` array is built only from peers whose `user_id` appears as another peer's `supervisor_user_id` AND who are themselves in the peer list. Many supervisors silently won't appear in the dropdown if they haven't shared their own results. Carried as a deferred quality item.
+
+## 14. Group D — Coach Bulk Invite + Shareable Link (Sessions 47 + 48)
+
+Group D extends the existing single-client invitation flow with two new entry points: bulk invite (table or CSV) and individual shareable link generation. Backend (Phases 1-3) shipped Session 47. Frontend (Phases 4-6 + polish) shipped Session 48. Auto-refund extension (Phase 6 polish addition) shipped Session 48.
+
+### 14.1 Schema additions to `coach_clients`
+
+| Column | Purpose |
+|---|---|
+| `expires_at timestamptz` | 30 days from creation for shareable_link and bulk source rows. NULL for legacy single-source invitations (pre-Group-D). Sweep job marks rows revoked when expires_at passes. |
+| `revoked_at timestamptz` | Stamped when row is revoked (manual via coach_invitation_revoke OR automatic via sweep_expired_invitations). |
+| `invitation_source text` | Values: 'single', 'bulk', 'shareable_link'. |
+| `client_first_name text` | Optional first name captured at invitation time. |
+| `client_last_name text` | Optional last name captured at invitation time. |
+| `refunded_at timestamptz` | Stamped when auto-refund processed. NULL = not refunded. |
+| `stripe_refund_id text` | Stripe refund object ID for audit trail. Format: `re_xxx`. |
+| `refund_amount numeric(10,2)` | Dollar amount refunded for this row (per-row share of original payment). |
+| `refund_failure_reason text` | If Stripe rejected refund (e.g., charge too old), reason logged here. |
+
+### 14.2 New table `coach_pending_bulk_batches`
+
+Holds metadata for in-flight Stripe checkout sessions for coach-paid bulk invites. Webhook iterates over the batch on `checkout.session.completed` and inserts coach_clients rows + generates per-row coupons. Self-pay rows do NOT use this table (they're inserted directly during dispatch).
+
+### 14.3 RPCs
+
+- `bulk_coach_invitation_create(rows jsonb)` — Per-row BEGIN/EXCEPTION isolation, 75-row cap, certification gating reuse from Item 37 mapping. Returns per-row outcomes. Called by `bulk_coach_invite` Edge Function for self-pay rows. Coach-paid rows are NOT created here; they wait for stripe-webhook.
+- `coach_invitation_revoke(p_coach_client_id uuid)` — Validates ownership via `auth.uid()`, stamps `revoked_at`. Returns `out_*` columns for the calling Edge Function to use in coupon recalc + refund logic.
+
+### 14.4 Edge Functions
+
+| Function | Version | Purpose |
+|---|---|---|
+| `bulk_coach_invite` | v2 | Wraps `bulk_coach_invitation_create` RPC + email dispatch in parallel batches of 10. 75-row cap. Self-pay path inserts rows immediately; coach-paid path returns Stripe checkout session URL. |
+| `coach_invitation_revoke` | v3 | Class A JWT auth. Calls revoke RPC, then `recalcCouponAfterRevoke` (deletes Stripe coupon if last row, else recreates at lower amount), then `processAutoRefund` (per refund policy gate). Trigger metadata: `manual_revoke`. |
+| `sweep_expired_invitations` | v3 | Class C cron auth via `DISPATCHER_SHARED_SECRET`. Loops over expired-but-not-revoked rows, stamps revoked_at, recalcs coupon, processes auto-refund. Trigger metadata: `auto_expiry_sweep`. Schedule `45 3 * * *`. |
+| `coach_invitation_resend` | v1 | Class A JWT auth. Per-client scope: lists ALL pending instruments for that coach + client_email. 24-hour rate limit per recipient_email + email_type='coach_reminder_pending' enforced via email_logs query. shareable_link rows treated as first-send template. |
+| `create-checkout` | v47 | Extended with `coach_bulk_order` mode. Lovable-fragile per standing rule — `coach_user_id` regularly dropped from Stripe metadata. Verify after every Lovable prompt touching checkout-adjacent code. |
+| `stripe-webhook` | v23 | New `coach_bulk_order` branch iterates over pending batch metadata, generates per-row coupons via `recalculateCombinedCouponForEmail`, creates coach_clients rows, dispatches emails in parallel batches of 10. |
+
+### 14.5 Refund policy (locked Session 48)
+
+**Auto-refund eligibility gate (ALL must be true):**
+- `coupon_redeemed = false`
+- `assessment_id IS NULL`
+- `payment_age <= 90 days` (computed from row created_at)
+- `payment_intent_id IS NOT NULL`
+- `coupon_amount > 0`
+
+**Triggers:**
+- Manual revoke via `coach_invitation_revoke` Edge Function (`processAutoRefund` called after coupon recalc)
+- Automatic expiry via `sweep_expired_invitations` Edge Function (`processAutoRefund` called per swept row)
+
+**Both paths use the same `processAutoRefund` helper.** Logic is duplicated verbatim between the two Edge Functions (build queue item exists to extract to shared module). Trigger metadata differentiates: `manual_revoke` vs `auto_expiry_sweep`.
+
+**Refunded amount = `coach_clients.coupon_amount`** (per-row share of original payment, not full payment_intent amount). Calls `stripe.refunds.create({ payment_intent, amount: rowAmount * 100, reason: 'requested_by_customer', metadata: { coach_client_id, trigger } })`.
+
+**On Stripe rejection** (e.g., charge already refunded, charge too old): row stamped with `refund_failure_reason`, helper returns `{refunded: false, reason: 'stripe_error: ...'}`. Doesn't fail the surrounding revoke or sweep — those succeed regardless.
+
+### 14.6 Frontend surfaces
+
+In `src/pages/coach/CoachClients.tsx`:
+- DropdownMenu on header with three options: Single client / Bulk invite / Generate shareable link
+- `perAssessmentPrice` state querying `subscription_plans` for dynamic price (not hardcoded)
+- URL parameter handler for `?bulk_checkout=success|cancelled`
+- Tabs structure: Clients tab (default) + Pending Invitations tab
+- Stat cards: Total Clients (signed-up), Pending Invitations, Completed This Month, Assessments Pending
+- Tooltip primitive replaces `title` attribute on disabled DropdownMenu trigger (Radix asChild swallowed it)
+
+In `src/components/coach/BulkInviteModal.tsx` (607 lines):
+- Three-stage flow: Validate (table editor + CSV upload) / Preview (per-row outcome) / Dispatch+Results
+- xlsx@^0.18.5 dependency for CSV parsing
+- 75-row cap, sticky defaults, payment_mode self_pay/coach_paid lowercase
+- Cert gating reuses `allowedInstrumentIds` from `CoachClients.tsx`
+
+In `src/components/coach/ShareableLinkModal.tsx` (287 lines):
+- qrcode.react@^4.0.1 dependency (`QRCodeSVG` component)
+- Both self-pay and coach-paid paths
+- 30-day expiry displayed
+
+In `src/components/coach/PendingInvitations.tsx` (295 lines):
+- Tab-based, replaces card-based design from initial Phase 5 ship
+- Per-row Copy link / Revoke (with confirmation dialog) / Resend (24h rate-limited via Edge Function) actions
+- Date formatting MMM d (no year) for tightness
+- Payment badges Coach / Self
+- Source badges Bulk / Single / Link
+
+## 15. Email infrastructure (Session 48 — Option A + Option B)
+
+### 15.1 `email_logs` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `email_type` | text NOT NULL | Categorical (`coach_invitation_self_pay`, `coach_reminder_pending`, `auth_or_external`, etc) |
+| `recipient_email` | text NOT NULL | |
+| `subject` | text NOT NULL | |
+| `resend_message_id` | text | Resend's message ID, used for webhook correlation |
+| `send_status` | text NOT NULL | `sent` or `failed` |
+| `error_message` | text | Populated when send_status='failed' |
+| `source` | text | Where in the codebase the send originated (e.g., `CoachClients.handleRemind`, `coach_invitation_resend`) |
+| `sent_at` | timestamptz NOT NULL | |
+| `delivered_at` | timestamptz | Populated by webhook when Resend delivers |
+| `bounced_at` | timestamptz | Populated by webhook on bounce |
+| `complained_at` | timestamptz | Populated by webhook on spam complaint |
+| `last_status_event` | text | Most recent webhook event type |
+| `last_status_at` | timestamptz | Timestamp of last_status_event |
+
+**RLS:** super_admin SELECT only via account_type check. Service role bypasses RLS for writes from Edge Functions.
+
+**Indexes:**
+- `recipient_sent_at`: `(recipient_email, sent_at DESC)`
+- `resend_message_id_partial`: `(resend_message_id)` WHERE `resend_message_id IS NOT NULL`
+- `failures_partial`: `(sent_at DESC)` WHERE `send_status = 'failed'`
+- `problem_events_partial`: `(last_status_at DESC)` WHERE `last_status_event IN ('bounced', 'complained')`
+
+**Retention:** pg_cron `purge_email_logs_90d` schedule `0 3 * * *` (03:00 UTC daily) executes `DELETE FROM email_logs WHERE sent_at < NOW() - INTERVAL '90 days'`.
+
+### 15.2 `send-email` Edge Function v8
+
+Internal-secret authenticated via `X-Internal-Secret` header (`INTERNAL_FUNCTION_SECRET` env). Logs every send to `email_logs` via `logEmailDispatch` helper that runs unconditionally on every code path (success and failure both write a row). Accepts optional `email_type` (default `unknown`) and `source` (default the calling Edge Function name).
+
+**Standing convention:** Edge Functions calling send-email should always pass both `email_type` and `source`. Build queue item: backfill these on functions that don't yet (stripe-webhook, bulk_coach_invite, invite-coach, send-departure-emails, generate-departure-export).
+
+### 15.3 Resend webhook integration (`resend-webhook` v1)
+
+**Endpoint:** `https://svprhtzawnbzmumxnhsq.supabase.co/functions/v1/resend-webhook`
+
+**Auth:** Svix-format signature verification (HMAC-SHA256 with `whsec_` prefix stripped from `RESEND_WEBHOOK_SECRET` env). 5-minute timestamp freshness window prevents replay attacks. `verify_jwt: false` because Resend doesn't send Supabase JWT.
+
+**Subscribed events (configured in Resend dashboard):**
+- email.sent
+- email.delivered
+- email.bounced
+- email.complained
+- email.delivery_delayed
+
+**Logic:**
+- Verify Svix signature, reject 401 on failure
+- Parse payload, look up email_logs row by `resend_message_id`
+- If found: update with delivery status (delivered_at / bounced_at / complained_at depending on event type, plus last_status_event / last_status_at)
+- If not found (Auth-system email or external): insert new row with `email_type='auth_or_external'`, `source='resend-webhook'`
+
+**Verified end-to-end Session 48:** send-email → Resend → webhook fires ~1s later → email_logs row updated with delivered_at. Full lifecycle in single row.
+
+### 15.4 Notes for future Edge Function authors
+
+- All transactional emails should route through `send-email` (not direct Resend API) so email_logs captures them.
+- Pass `email_type` and `source` parameters on every call.
+- For new email categories, register the `email_type` value here in the arch ref to maintain a canonical list.
+- Auth emails (Supabase Auth → Resend SMTP) bypass send-email by design. The webhook captures them with `email_type='auth_or_external'` for audit completeness.
+
+## 16. pg_cron jobs (current state)
+
+| Job | Schedule | Purpose | Auth |
+|---|---|---|---|
+| `sync-stripe-prices-daily` | `0 2 * * *` | Pulls Stripe prices into `subscription_plans` table | Class C (vault `departure_dispatcher_shared_secret`) |
+| `purge_email_logs_90d` | `0 3 * * *` | Deletes email_logs rows older than 90 days | Inline SQL (no auth needed, runs as superuser) |
+| `dispatch_grace_reminders_daily` | `15 3 * * *` | Dispatches Email 4 grace reminders to deactivated corporate users | Class C (vault `departure_dispatcher_shared_secret`) |
+| `sweep_expired_coach_invitations` | `45 3 * * *` | Sweeps Group D expired invitations + voids coupons + processes auto-refunds | Class C (vault `departure_dispatcher_shared_secret`) |
+
+**Staggering rationale:** All overnight jobs offset by 15-30 minutes to avoid concurrent cron load.
+
+**Class C cron auth pattern:** pg_cron job calls `net.http_post` with header `X-Dispatcher-Secret` populated from `vault.decrypted_secrets`. Edge Function reads `DISPATCHER_SHARED_SECRET` env var and constant-time compares against the header value via `safeEqual`. Reject 401 on mismatch.
+
+## 17. Auto-refund automation (Session 48)
+
+Both manual revoke and automatic sweep use the same `processAutoRefund` helper (currently duplicated verbatim between `coach_invitation_revoke` and `sweep_expired_invitations`).
+
+### 17.1 Eligibility gate
+
+```
+auto_refund_eligible = (
+  row.coupon_redeemed = false
+  AND row.assessment_id IS NULL
+  AND row.stripe_payment_intent_id IS NOT NULL
+  AND row.coupon_amount > 0
+  AND age_days(row.created_at) <= 90
+)
+```
+
+If any condition fails → `{refunded: false, reason: <specific>}` with no Stripe call. Reasons: `coupon_already_redeemed`, `assessment_started`, `not_coach_paid`, `no_refund_amount`, `outside_90_day_window`.
+
+### 17.2 Refund execution
+
+```typescript
+const refund = await stripe.refunds.create({
+  payment_intent: row.stripe_payment_intent_id,
+  amount: Math.round(row.coupon_amount * 100), // per-row share, not full charge
+  reason: "requested_by_customer",
+  metadata: {
+    coach_client_id: row.id,
+    trigger: "manual_revoke" | "auto_expiry_sweep",
+  },
+});
+```
+
+On success: stamps `refunded_at`, `stripe_refund_id`, `refund_amount` on the coach_clients row.
+
+On Stripe failure: stamps `refund_failure_reason` (truncated to 500 chars), helper returns `{refunded: false, reason: 'stripe_error: <msg>'}`. Surrounding revoke/sweep proceeds.
+
+### 17.3 Individual purchase refund tracking (no automation)
+
+`assessment_purchases` extended with `refunded_at`, `stripe_refund_id`, `refund_amount`, `refund_failure_reason`, `refund_processed_by` (UUID FK users — audits which super_admin approved the refund). Manual processing only — no auto-refund Edge Function.
+
+Build queue: super-admin UI surface to view a user's purchases + eligibility status + "Process refund" button gating on Tier 2 audit. Depends on Group A audit prequel being complete.
+
+### 17.4 Refund policy text (locked Session 48, in Terms of Service v2)
+
+Per `src/content/legal/termsContent.ts` Section 5.5:
+
+- **Individual purchases:** 14-day refund window if assessment not started AND no AI interpretation generated AND feature not substantively used.
+- **Coach-paid client assessments:** auto-refund per Section 5.3 (the policy described in 14.5 above).
+- **Corporate contracts:** all sales final per executed contract.
+
+## 18. `coach_invitation_resend` Edge Function (Session 48)
+
+Per-client scope reminder dispatch with rate limiting via email_logs query.
+
+**Auth:** Class A JWT via `auth.getClaims`. Caller must own the `coach_clients` row referenced by `p_coach_client_id`.
+
+**Logic:**
+1. Look up the row, verify ownership (`row.coach_user_id = caller.uid`)
+2. Rate limit check: query `email_logs` for any row with `recipient_email = row.client_email AND email_type = 'coach_reminder_pending' AND sent_at > NOW() - INTERVAL '24 hours'`. If found → 429 `rate_limited`.
+3. Find ALL pending rows for `(coach_user_id, client_email)` pair: `revoked_at IS NULL AND assessment_id IS NULL AND invitation_status IN ('sent', 'opened') AND (expires_at IS NULL OR expires_at > NOW())`
+4. If no rows match → 400 `nothing_to_remind`
+5. Look up instrument names, build email (reminder template OR first-send template if shareable_link)
+6. Dispatch via `send-email` with `email_type='coach_reminder_pending'`, `source='coach_invitation_resend'`
+7. Return `{success: true, instruments_count, instruments: [...]}` or error code
+
+**Templates:**
+- Reminder ("Reminder: Your BrainWise Assessment is Waiting") for non-shareable_link sources
+- First-send ("Your coach prepared an assessment for you") for shareable_link sources where the original invitation never sent an email
+
+**Frontend surfaces** in `PendingInvitations.tsx`: Resend button with toast variants per response (`success` → "Reminder sent", `rate_limited` → "Reminder already sent recently", `nothing_to_remind` → "Nothing to remind", `unauthorized` → "Unauthorized", other → generic error).
 
