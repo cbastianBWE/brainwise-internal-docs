@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v43 - Session 49 closeout (Group A audit prequel SHIPPED, Group A Feature A1 Tier 1 backend SHIPPED, super_admin_action_types lookup table replaces CHECK, custom_access_token_hook for impersonation claims, _shared/impersonation_gate.ts helper deployed)*
+*v44 - Session 50 closeout (Tier 2 impersonation gate rollout — 17 of 23 functions shipped, helper deep verification complete, file-path conventions documented, four recon corrections logged)*
 
 ## 1. Overview
 
@@ -1278,3 +1278,70 @@ if (callerUserId !== null) {
 ### 22.4 Validation status (Session 49)
 
 Helper deployed via `test-impersonation-gate` Edge Function (test-only, kept deployed for future ad-hoc testing). Probe with no-auth confirmed clean 401 response — module bundling resolved correctly, no module-not-found errors. RPC interaction validation deferred to first real Tier 2 splice in Session 50.
+
+## 23. Tier 2 impersonation gate rollout (Session 50)
+
+### 23.1 Helper module deep verification
+
+End-to-end behavioral validation of `assert_impersonation_allows` RPC + helper module pairing performed Session 50 via direct SQL JWT-claim simulation:
+
+| Test | Setup | Expected | Result |
+|------|-------|----------|--------|
+| 1 | No `request.jwt.claims` set | Returns `no_impersonation` | ✓ |
+| 2 | JWT with bogus session_id (random UUID) | Raises 42501 | ✓ |
+| 3a | observe-mode session, category=permission_change | Raises 42501 with `imp_session_id=<uuid>` DETAIL | ✓ |
+| 3b | act-mode session, category=permission_change (denylisted) | Raises 42501 with DETAIL | ✓ |
+| 3c | act-mode session, category=read_only (NOT denylisted) | Returns `act_allowed` with full session metadata | ✓ |
+
+DETAIL field format `imp_session_id=<uuid>` confirmed to match helper TypeScript regex `/imp_session_id=([0-9a-f-]+)/i`. The helper's session-id extraction works correctly across all 42501 paths.
+
+### 23.2 Edge Function file-path conventions discovered
+
+Three distinct prefix styles exist across deployed functions. Always read `entrypoint_path` from `get_edge_function` and match exactly when redeploying:
+
+| Style | Example function | entrypoint_path returned | Files block uses |
+|-------|------------------|--------------------------|------------------|
+| Naked | delete-account, calculate-scores, invitation_send, etc. | `source/index.ts` | `index.ts`, `_shared/<file>.ts` |
+| `functions/` prefix | create-checkout | `source/functions/create-checkout/index.ts` | `functions/create-checkout/index.ts`, `functions/_shared/<file>.ts` |
+| `supabase/functions/` prefix | ai-chat, customer-portal | `source/supabase/functions/<name>/index.ts` | `supabase/functions/<name>/index.ts`, `supabase/functions/_shared/<file>.ts` |
+| Custom (set-account-type) | set-account-type | `source/set-account-type/index.ts` | `set-account-type/index.ts`, `_shared/<file>.ts` |
+
+Wrong prefix = module bundling error at runtime (relative `../_shared/` import fails to resolve). The fix is mechanical but the symptom is a 500 with module-not-found, not the function's normal 401/error response.
+
+### 23.3 Gate client requirement (CRITICAL)
+
+`enforceImpersonationGate(callerClient, category)` MUST be called with an anon-key client that carries the user's `Authorization` header:
+
+```typescript
+const callerClient = createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  { global: { headers: { Authorization: authHeader } } }
+);
+await enforceImpersonationGate(callerClient, "permission_change");
+```
+
+If passed a service-role client instead, the gate **silently fails** — service-role calls don't carry user JWT context, so PostgREST's `request.jwt.claims` is null, the RPC returns `no_impersonation`, and the action proceeds even when impersonation is active.
+
+This is a silent failure mode. Always verify by inspecting the client's auth config before passing it to the gate. In functions where the existing client is service-role (e.g. customer-portal, reactivate-account), construct a separate `userClient` for the gate call.
+
+### 23.4 Tier 2 recon corrections
+
+Recon misclassified four functions; corrected during rollout:
+
+1. **`peer-access-respond`** — invoked from email-link click. No JWT, only `action_token` query param. Gate would always return `no_impersonation`. Reclassified as "explicitly NOT gated — public unauthenticated form".
+2. **`verify-conversion`** — same pattern. Email-link, token query param, no JWT. Reclassified as "explicitly NOT gated".
+3. **`airsa-supervisor-invite`** — Class B internal-secret only (`x-internal-secret` header). No caller user JWT possible. The CALLER (calculate-scores) is gated; this is the receiver. Reclassified.
+4. **`send-departure-emails`** — same as #3. Class B receiver. Callers (deactivate-and-notify, bulk-deactivate-and-notify, etc.) are all gated. Reclassified.
+
+Lesson: when classifying functions for impersonation gate, distinguish (a) JWT-required user-facing endpoints, (b) internal-secret server-to-server endpoints, (c) public unauthenticated form endpoints. Only (a) needs the gate. For (b), gate the CALLER. (c) cannot be gated.
+
+### 23.5 reactivate-account preserved verify_jwt:true
+
+Unique among Tier 2 functions — `reactivate-account` had `verify_jwt: true` at platform level and lacked an inline `auth.getUser()` call. The gate splice was added conditionally on `Authorization` header presence to preserve existing behavior.
+
+Pre-existing security observation flagged but out of scope: any authenticated user could pass any email and reactivate that user's account — there's no caller-vs-target ownership check. The impersonation gate adds defense for the impersonation case; the broader hole is a separate hardening item for the build queue.
+
+### 23.6 airsa-supervisor-reminder category re-categorization
+
+Session 49 recon classified `airsa-supervisor-reminder` as `corporate_admin_action`. During Session 50 reading, the actual semantics turned out to be: the SELF-RATER (a regular employee) clicks a button to nudge their supervisor. The action is sending an email from the user's identity. The correct category is `outbound_user_communication`. Both categories are denylisted in observe and act mode, so enforcement behavior is identical — but the category label matters for audit trail accuracy and future reporting queries.

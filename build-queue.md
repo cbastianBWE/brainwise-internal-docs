@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v41 - Session 49 closeout (Group A audit prequel + A1 Tier 1 backend SHIPPED)*
+*v42 - Session 50 closeout (Tier 2 impersonation gate rollout PARTIAL — 17 of 23 functions shipped, 6 remaining)*
 
 ## Priority key
 
@@ -280,7 +280,11 @@ A2 (direct user editing — Tier 1/2/3 fields), A3 Phase 3 super admin reporting
 
 ## Build queue items added Session 49
 
-- **Tier 2 enforcement rollout** (Session 50) — 27 Edge Functions, see Session 49→50 handoff for full list and categories
+- **Tier 2 enforcement rollout** (Session 50 PARTIAL — 17 of 23 shipped, 6 remaining for Session 51)
+  - SHIPPED Session 50 (17 functions): set-account-type v43 (permission_change), ai-chat v31 (outbound_user_communication), delete-account v8 (identity_change), create-checkout v49 (financial_transaction), customer-portal v35 (financial_transaction), coach_invitation_revoke v4 (coach_action), coach_invitation_resend v2 (coach_action), reactivate-account v8 (lifecycle_action), airsa-supervisor-reminder v4 (outbound_user_communication; recat from corporate_admin_action — self-rater initiates, not admin), assign_epn_send v9 (corporate_admin_action), deactivate-and-notify v7 (corporate_admin_action), bulk-deactivate-and-notify v7 (corporate_admin_action), bulk_coach_invite v4 (coach_action), invitation_send v10 (corporate_admin_action), bulk_invitation_send v9 (corporate_admin_action), calculate-scores v44 (assessment_submission), submit-epn-assessment v7 (assessment_submission)
+  - REMAINING Session 51 (6 AI narrative generators, all corporate_admin_action): generate-departure-export, generate-airsa-org-narrative (HYBRID auth — only gate when isInternal === false), generate-cross-instrument-recommendations, generate-dashboard-narrative, generate-nai-delta-narrative, generate-ptp-delta-narrative. Pattern is mature; mechanical splice using established splice template. Estimated 1.5-2hr at start of Session 51.
+  - **CORRECTIONS Session 50**: 4 functions removed from Tier 2 list. (1) `peer-access-respond` and (2) `verify-conversion` invoked by clicking email link with token query param — no JWT, no impersonation context possible. (3) `airsa-supervisor-invite` and (4) `send-departure-emails` are Class B internal-secret callers (server-to-server with x-internal-secret header) — no caller user JWT, gate would always return `no_impersonation`. All four reclassified to "explicitly NOT gated". The CALLERS of the Class B functions ARE gated (e.g. deactivate-and-notify is gated; it then calls send-departure-emails). Tier 2 list reduces from 27 to 23 functions.
+  - **VERIFICATION** (Session 50): Full helper RPC behavior tested end-to-end via direct SQL JWT-claim simulation. Verified: no-JWT → no_impersonation; bogus session_id → 42501; observe mode → 42501 with imp_session_id detail; act mode + denylisted category → 42501; act mode + read_only → act_allowed with full session metadata. DETAIL field format `imp_session_id=<uuid>` matches helper regex `/imp_session_id=([0-9a-f-]+)/i`. Per-function probe: every deployed function returns expected 401/500 (no module-bundling failures). Frontend integration test deferred to Phase C completion.
 - **A3 Phase 2 reporting RPCs** (Session 50 or 51) — list_audit_events, audit_event_detail, audit_session_replay, export_audit_events
 - **A1 impersonation frontend** (Session 50 or 51) — justification modal, MFA challenge, banner, favicon, viewport border, token swap, exit flow
 - **`/settings/access-history` page** (Session 50 or 51) — launch blocker A1
