@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v43 - Session 51 closeout (Tier 2 impersonation gate rollout COMPLETE — 23 of 23 functions shipped; Phase B/C/D open for Session 52)*
+*v44 - Session 52 closeout (A3 Phase 2 audit reporting RPCs SHIPPED — 6 RPCs deployed and verified; Phase C frontend recon COMPLETE; Phase C-1, C-2, and D scoped for Session 53)*
 
 ## Priority key
 
@@ -240,6 +240,29 @@ One architectural delta surfaced and logged in architecture-reference.md §23.7:
 
 Phase B (A3 Phase 2 reporting RPCs), Phase C (A1 impersonation frontend), and Phase D (`/settings/access-history` page) move to Session 52. Group C Phase 1 originally targeted Session 51 → now Session 53 at earliest depending on whether Phase B/C/D fit in one session.
 
+## Session 52 deltas summary
+
+Phase B SHIPPED. Six SECURITY DEFINER RPCs deployed and verified for the audit reporting surface: `list_audit_events`, `audit_event_detail`, `audit_session_replay`, `export_audit_events`, `my_access_history`, `search_impersonation_targets`. All gated via `assert_super_admin()` except `my_access_history` (gated by `auth.uid() IS NOT NULL` since each user reads their own history). Filter shape locked as jsonb with seven keys: actor_user_id, target_user_id, action_type, date_from, date_to, mode, session_id. `export_audit_events` cap = 10,000 rows with `truncated` flag (graceful truncation, SOC 2 CC7.2 friendly). `my_access_history` UNIONs `super_admin_audit_log` (filtered on affected_user_id) and `company_admin_audit_log` (filtered on target_user_id) with an `audit_source` discriminator for the frontend. `audit_session_replay` returns single jsonb (`{session, events}`) for atomic gate + atomic session/event consistency. `pg_trgm` extension enabled to support ILIKE substring acceleration on user search. Full RPC catalog and design rationale in architecture-reference.md §24.
+
+Phase B verification: production has 367 audit log rows across 10 distinct action types. Smoke tests confirmed: real-data joins working, filter exactness against COUNT ground truth, gate raises 42501 for non-super-admin callers, UNION isolation correct (orgmember test user shows 30 super_admin + 2 company_admin = 32 events, matches actor/target counts).
+
+Phase C frontend recon COMPLETE. Read App.tsx, AppLayout.tsx, RoleGuard.tsx, ProtectedRoute.tsx, MfaChallenge.tsx, MfaEnrollment.tsx, useAuth.tsx, useUserProfile.tsx, useSuperAdminSession.tsx, AppSidebar.tsx, Settings.tsx, CompanyAccounts.tsx, PlatformHealth.tsx. Six integration decisions locked, captured in architecture-reference.md §25:
+
+1. Banner injection at App.tsx-level (NOT AppLayout) so banner persists on bypass-AppLayout protected routes (Onboarding, MFA enrollment, demographic-form).
+2. New `ImpersonationProvider` context between AuthProvider and Routes; reads JWT claims on every auth state change.
+3. Impersonate entry: NEW `/super-admin/users` page (universal user search + row actions), NOT PlatformHealth or CompanyAccounts. Universal across account types, future actions slot in cleanly.
+4. `MfaChallenge.tsx` gets one additive prop: optional `onCancel?: () => void`. Backwards-compatible.
+5. `ProtectedRoute` does NOT bypass demographic/MFA/deactivation gates during impersonation (Option B locked) — Tier 2 backend denylist is the security layer.
+6. Phase C is split into two prompts: C-1 (dormant infrastructure) and C-2 (entry + flow). Phase D is independent.
+
+Three-prompt sequencing locked for Session 53:
+
+- **Phase C-1**: ImpersonationProvider + ImpersonationBanner + ImpersonationChrome + MfaChallenge `onCancel` additive + App.tsx wiring + Tier 2 denylist audit.
+- **Phase C-2**: SuperAdminUsers page + JustificationModal + sidebar nav update + redirectByRole update + impersonation-start/impersonation-end integration.
+- **Phase D**: AccessHistory page + sidebar settings update + route registration.
+
+Architecture-reference.md §20 schema clarification logged in §24.6: §20.1 and §20.2 ALTER TABLEs are CORRECT and verified against live DB. The actor column on `super_admin_audit_log` is `super_admin_user_id`, target is `affected_user_id`, org is `company_id`, jsonb detail is `detail`. The actor column on `company_admin_audit_log` is `actor_user_id`, target is `target_user_id`, org is `organization_id`, jsonb detail is `action_details`. Names matter for any RPC writing or filtering against these tables.
+
 ## Group C three-week sequencing plan (revised Session 49)
 
 **Cohort target: three weeks from Session 48 close.** Plan A confirmed Session 49: Tier 2 backend + A3 Phase 2 + A1 frontend land before Group C starts (Cole prefers to finish A1 while context is fresh). Group C ships Sessions 51-60 instead of 50-58 — slight slip but still within the cohort window.
@@ -313,15 +336,16 @@ A2 (direct user editing — Tier 1/2/3 fields), A3 Phase 3 super admin reporting
   - **CORRECTIONS Session 50** (4 functions): `peer-access-respond` and `verify-conversion` (email-link unauthenticated, no JWT possible); `airsa-supervisor-invite` and `send-departure-emails` (Class B internal-secret receivers, no caller user JWT). All four reclassified to "explicitly NOT gated"; their CALLERS are gated. Tier 2 list reduced 27 → 23.
   - **CORRECTION Session 51** (1 function): `generate-departure-export` recategorized from corporate_admin_action → lifecycle_action. Caller is the deactivated employee retrieving their own data export, not an admin. Both denylisted equally; runtime identical, audit label more accurate.
   - **VERIFICATION** (Session 50 + 51): Full helper RPC behavior tested end-to-end via direct SQL JWT-claim simulation. DETAIL format `imp_session_id=<uuid>` matches helper regex. Per-function probe: every deployed function returns expected 401 (no module-bundling failures). Frontend integration test deferred to Phase C completion.
-- **A3 Phase 2 reporting RPCs** (Session 52) — list_audit_events, audit_event_detail, audit_session_replay, export_audit_events, my_access_history
-- **A1 impersonation frontend** (Session 52) — justification modal, MFA challenge, banner, favicon, viewport border, token swap, exit flow
-- **`/settings/access-history` page** (Session 52) — launch blocker A1
+- **A3 Phase 2 reporting RPCs** [SHIPPED Session 52] — six RPCs deployed and verified: list_audit_events, audit_event_detail, audit_session_replay (single-jsonb shape), export_audit_events (10k cap with truncated flag), my_access_history (UNION across both audit tables with audit_source discriminator), search_impersonation_targets (gin_trgm-backed user search). Full RPC catalog and rationale in architecture-reference.md §24. Hard-blocker resolved.
+- **A1 impersonation frontend Phase C-1** (Session 53) — dormant infrastructure: ImpersonationProvider context, ImpersonationBanner, ImpersonationChrome (tab title + favicon + red border), MfaChallenge `onCancel` additive prop, App.tsx wiring, Tier 2 denylist audit (verify demographic-form-submit + mfa-enrollment-completion are denylisted). Recon complete (architecture-reference.md §25.1-§25.3, §25.6, §25.7, §25.8, §25.9). Pre-flight: read `impersonation-start` and `impersonation-end` Edge Function source to confirm response token shape before writing frontend code.
+- **A1 impersonation frontend Phase C-2** (Session 53 if pacing allows, else Session 54) — entry + flow: NEW `/super-admin/users` page (universal user search via `search_impersonation_targets` RPC + row actions), JustificationModal (10-char min + observe/act selector + embedded MfaChallenge), sidebar superAdminNav update, `useAuth.redirectByRole` update (super admins land on `/super-admin/users` instead of `/super-admin/health`), removal of `/super-admin` layout-only fallback (replace with redirect). End-to-end impersonation goes live. Recon complete (architecture-reference.md §25.4, §25.5, §25.10).
+- **`/settings/access-history` page** Phase D (Session 53 if pacing allows, else Session 54) — top-level route at `/settings/access-history` (sibling pattern to `/settings/privacy`), reads `my_access_history` RPC, sidebar update in both `settingsSubItems` and `coachSettingsSubItems` arrays. Open question: CSV export uses paginated client-side assembly capped at 1000 rows OR new `my_access_history_export` RPC. Decide at prompt construction. Recon complete (architecture-reference.md §25.11). Independent of Phase C.
 - **Standardize on `auth.getClaims` across all Edge Functions** — `ai-chat` uses `auth.getUser` while everyone else uses `auth.getClaims`. Migrate ai-chat to getClaims for consistency. Low priority.
 - **Migrate verify_jwt: false → verify_jwt: true on sensitive Edge Functions** — SOC 2 hardening pass; defensible either way but tightening reduces a class of bug. Low priority.
 - **Align brainwise-blueprint Lovable repo with deployed Edge Function reality** — repo tracks ~10 functions, 52 deployed. Low priority, no blocking work depends on it.
 - **Consider `is_test` column on `super_admin_audit_log`** — Session 49 left 9 test marker rows that can't be deleted (immutability trigger). Cleaner filtering than `WHERE detail->>'test' IS NULL`. Low priority.
 - **`impersonation_denied_action` audit row writes** — when assert_impersonation_allows raises 42501, the calling Edge Function could write an audit row capturing the denied attempt. Builds SOC 2 evidence of enforcement. Add during Tier 2 rollout if pacing allows; otherwise build queue item.
-- **Background-job CSV export for >5000-row audit reporting** — A3 Phase 2's export_audit_events may need async pattern for large date ranges. Decide based on observed query performance during build.
+- **Background-job CSV export for >10000-row audit reporting** — DECIDED Session 52: `export_audit_events` returns up to 10k rows with `truncated` flag and `total_matched` count; frontend renders banner instructing user to narrow filters. Hard-fail rejected; async pattern not built (CC7.2-friendlier to give a graceful slice than nothing). Reopen if observed audit volume exceeds 100k/month.
 
 ## Verified bugs with explicit fix instructions
 

@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v45 - Session 51 closeout (Tier 2 impersonation gate rollout COMPLETE — 23 of 23 functions shipped, entrypoint_path convention clarified, recon correction #5 logged)*
+*v46 - Session 52 closeout (A3 Phase 2 audit reporting RPCs SHIPPED — 6 RPCs deployed, §20 schema clarified in §24.6, pg_trgm extension enabled, Phase C frontend recon complete in §25)*
 
 ## 1. Overview
 
@@ -1385,3 +1385,193 @@ This brings the running total of recon corrections to 5: four from Session 50 (`
 | `generate-ptp-delta-narrative` | v9 | `corporate_admin_action` |
 
 23 of 23 in-scope Tier 2 functions now spliced.
+
+## 24. A3 Phase 2 audit reporting RPCs (Session 52)
+
+Six SECURITY DEFINER RPCs deployed for the audit reporting surface. All gated via `assert_super_admin()` except `my_access_history` (gated only by `auth.uid() IS NOT NULL` since each user reads their own history). All take a max-200 hard cap on `p_limit` to bound row counts.
+
+### 24.1 RPC catalog
+
+| RPC | Args | Returns | Gate | Indexes used |
+|---|---|---|---|---|
+| `list_audit_events` | `p_filters jsonb, p_limit int, p_offset int` | `TABLE(... total_count bigint)` | `assert_super_admin()` | `idx_audit_log_action_type`, `idx_super_admin_audit_log_actor_created`, `idx_super_admin_audit_log_session_id`, `idx_super_admin_audit_log_mode` |
+| `audit_event_detail` | `p_event_id uuid` | `TABLE(... before_value jsonb, after_value jsonb, ...)` | `assert_super_admin()` | PK lookup |
+| `audit_session_replay` | `p_session_id uuid` | `jsonb` (`{session: {...}, events: [...]}`) | `assert_super_admin()` | `idx_super_admin_audit_log_session_id` |
+| `export_audit_events` | `p_filters jsonb` | `jsonb` (`{rows, total_returned, total_matched, truncated, cap, exported_at}`) | `assert_super_admin()` | Same as `list_audit_events` |
+| `my_access_history` | `p_limit int, p_offset int` | `TABLE(audit_source text, ... total_count bigint)` | `auth.uid() IS NOT NULL` | `idx_super_admin_audit_log_affected_user_created`, `idx_company_admin_audit_log_target` |
+| `search_impersonation_targets` | `p_query text, p_limit int` | `TABLE(user_id uuid, email, full_name, account_type, organization_name)` | `assert_super_admin()` | `idx_users_email_trgm`, `idx_users_full_name_trgm` |
+
+### 24.2 Filter schema (jsonb shape used by `list_audit_events` and `export_audit_events`)
+
+```json
+{
+  "actor_user_id": "uuid|null",
+  "target_user_id": "uuid|null",
+  "action_type": "text|null",
+  "date_from": "ISO8601|null",
+  "date_to": "ISO8601|null",
+  "mode": "text|null",
+  "session_id": "uuid|null"
+}
+```
+
+`mode` filter exact-matches against the stored value (e.g. `"impersonation:observe:individual_record_viewed"`). For wildcard mode searches (e.g. all impersonation modes), a `mode_prefix` filter would need to be added later. Empty/missing keys are treated as no filter.
+
+### 24.3 `my_access_history` UNION shape decision
+
+`my_access_history` UNIONs `super_admin_audit_log` (filtered on `affected_user_id = auth.uid()`) and `company_admin_audit_log` (filtered on `target_user_id = auth.uid()`). The two tables have divergent shapes: `super_admin_audit_log` carries `mode`/`session_id`/`detail`; `company_admin_audit_log` carries neither. Unified output shape includes an `audit_source text` discriminator (`'super_admin'` or `'company_admin'`) so the frontend can render row variants. `before_value`/`after_value` are intentionally NOT returned — the user sees metadata about who accessed their record but not the raw before/after diffs (those are super-admin-only via `audit_event_detail`).
+
+Decision rationale logged Session 52: UNION inside RPC chosen over pre-unified view. View would require RLS sync + breaks when underlying table shapes diverge further; RPC encapsulates both concerns and lets future audit tables (coach-tier, instrument-content) extend cleanly via `ALTER FUNCTION`.
+
+### 24.4 `export_audit_events` truncation behavior
+
+Hard cap: 10,000 rows. When `total_matched > cap`, returns the most-recent 10,000 rows (`ORDER BY created_at DESC`) plus `truncated: true`. The frontend renders a banner instructing the user to narrow filters and re-export. SOC 2 CC7.2 (anomaly detection) favors graceful truncation over hard-fail because investigators hitting the cap still see the most recent slice while being told to narrow.
+
+### 24.5 `audit_session_replay` single-jsonb shape
+
+Returns `jsonb` with two top-level keys: `session` (the `impersonation_sessions` row joined with super admin and target user metadata) and `events` (array of `super_admin_audit_log` rows where `session_id = p_session_id`, ordered chronologically ASC). Single jsonb chosen over two RPCs to enforce atomic gate + atomic session/event consistency. Frontend renders session metadata as a header card and events as a timeline.
+
+When `p_session_id` does not match any row in `impersonation_sessions`, the `session` key returns null but the events query still runs (since `session_id` values in `super_admin_audit_log` can be ad-hoc per-action UUIDs unrelated to impersonation). This means callers get a useful response for both impersonation-bound and ad-hoc session IDs.
+
+### 24.6 Architecture-reference §20 schema clarification
+
+§20.1 (`super_admin_audit_log`) and §20.2 (`company_admin_audit_log`) ALTER TABLE statements are correct and verified against live DB. The actor column on `super_admin_audit_log` is `super_admin_user_id`; the target column is `affected_user_id`; the org column is `company_id`; the jsonb detail column is `detail` (NOT `action_details`). The actor column on `company_admin_audit_log` is `actor_user_id`; the target column is `target_user_id`; the org column is `organization_id`; the jsonb detail column is `action_details`. These names matter for any RPC writing or filtering against these tables — they are not interchangeable.
+
+### 24.7 `pg_trgm` extension enabled
+
+Trigram extension installed Session 52 to support ILIKE substring acceleration on `users.email` and `users.full_name` for `search_impersonation_targets`. GIN indexes added: `idx_users_email_trgm`, `idx_users_full_name_trgm` (the latter partial WHERE full_name IS NOT NULL). Available now for any future user-search RPCs (coach search, departments search, etc.).
+
+### 24.8 Verification record
+
+All six RPCs verified Session 52 via:
+1. `pg_proc` catalog confirmation (signature, SECURITY DEFINER flag).
+2. Functional smoke test with super admin JWT claims (real-data return, joins working).
+3. Gate test with non-super-admin JWT claims (42501 raise from `assert_super_admin()` for the five gated RPCs, empty-result behavior for `my_access_history` when the caller has no audit history).
+4. Filter exactness check against ground-truth COUNT queries on the underlying tables.
+
+Production audit log row counts at verification time: 367 rows in `super_admin_audit_log` across 10 distinct action types. `my_access_history` UNION verified at user level: orgmember test user shows 30 super_admin + 2 company_admin = 32 events, matching ground truth.
+
+## 25. Phase C frontend integration map (Session 52 recon)
+
+Recon completed Session 52 against commit `a896b67…` of `cbastianBWE/brainwise-blueprint`. The integration decisions below are locked and should drive Phase C prompt construction.
+
+### 25.1 Routing structure (existing)
+
+- `src/main.tsx` is bare — renders `<App/>` only.
+- `src/App.tsx` is the router root. Wraps in `QueryClientProvider` → `TooltipProvider` → `BrowserRouter` → `AuthProvider` → `<Routes>`.
+- Protected routes split into two buckets:
+  - **Bypass-AppLayout protected routes**: `/onboarding`, `/demographic-consent`, `/demographic-form`, `/mfa-enrollment`, `/peer-sharing-optin`, `/departed`. These wrap `<ProtectedRoute>` directly.
+  - **AppLayout protected routes**: everything else under `<Route element={<ProtectedRoute><AppLayout/></ProtectedRoute>}>`. AppLayout provides sidebar + navy header.
+- `RoleGuard allowedRoles={["brainwise_super_admin"]}` is the canonical super-admin gating pattern used at the route level.
+- `SuperAdminSessionProvider` already wraps every super-admin route — it is just a `crypto.randomUUID()` per-mount client-side correlation hook. Does NOT conflict with Phase C `ImpersonationProvider`.
+
+### 25.2 Banner injection: App.tsx-level (locked)
+
+The orange impersonation banner injects in `src/App.tsx`, between `<AuthProvider>` and `<Routes>`, NOT inside `AppLayout`. Reason: the existing demographics/MFA/deactivation gates in `ProtectedRoute` redirect users to bypass-AppLayout protected routes. If a super admin impersonates a target whose demographics are incomplete, ProtectedRoute will redirect to `/demographic-form`, which does not render inside AppLayout. The banner MUST persist on those routes.
+
+`AppLayout`'s existing structure:
+```
+SidebarProvider → div.flex
+  AppSidebar
+  div.flex-col
+    header (navy 56px)
+    main (renders <Outlet/> with optional coupon banner above)
+```
+
+The coupon banner currently inside `<main>` is a content-area banner, not the model for the impersonation banner. Impersonation banner must sit OUTSIDE both AppLayout and any route-specific page chrome.
+
+### 25.3 ImpersonationProvider design (new)
+
+New file `src/contexts/ImpersonationProvider.tsx`. Sits in `App.tsx` between `<AuthProvider>` and `<Routes>`. Reads JWT claims (`imp_session_id`, `imp_actor_user_id`, `imp_mode`, `exp`) on every `auth.onAuthStateChange` fire. Exposes:
+
+```
+{
+  isImpersonating: boolean,
+  session: { sessionId, actorUserId, targetUserId, mode, expiresAt, startedAt } | null,
+  beginImpersonation(targetUserId, mode, justification, mfaCode): Promise<void>,
+  endImpersonation(reason: 'manual' | 'forced'): Promise<void>,
+  remainingSeconds: number  // ticks every second; 0 when not impersonating
+}
+```
+
+`beginImpersonation` calls the `impersonation-start` Edge Function, then `supabase.auth.setSession({ access_token, refresh_token })` with the response tokens, then navigates to `/dashboard`. `endImpersonation` calls `impersonation-end`, restores original tokens (returned in the response), navigates to `/super-admin/users` (the impersonation entry point).
+
+### 25.4 Impersonation entry point: `/super-admin/users` page (new, locked)
+
+NEW page `src/pages/super-admin/Users.tsx` registered at `/super-admin/users` in App.tsx (alongside existing super-admin routes). Page contents:
+
+- Search input (debounced 250ms) → calls `search_impersonation_targets(query, 25)`.
+- Table with columns: Email, Full Name, Account Type, Organization, Actions.
+- Action column: "Impersonate" button (opens `JustificationModal` for that target). Future actions (MFA reset, password reset, force pseudonymization, view session history) slot in as additional menu items.
+- Empty state for unsearched / too-short query: "Type at least 2 characters to search."
+
+Sidebar `superAdminNav` array gets a new entry: `{ title: 'User Management', url: '/super-admin/users', icon: Users }`. Update `useAuth.redirectByRole` so super admins land on `/super-admin/users` instead of `/super-admin/health` (small but worth flagging — doc this as a behavior change).
+
+`/super-admin` (currently a layout-only fallback at App.tsx line 165) gets removed or replaced with a redirect to `/super-admin/users`.
+
+### 25.5 JustificationModal design (new)
+
+New file `src/components/impersonation/JustificationModal.tsx`. Receives `target: { user_id, email, full_name, account_type }` as prop (from the row click on `/super-admin/users`).
+
+Flow:
+1. Step 1: Justification textarea (10 char min, hint shown), mode selector (observe/act radio buttons). Continue button enabled when justification ≥ 10 chars.
+2. Step 2: Embedded `<MfaChallenge userId={user.id} onSuccess={...} onCancel={closeModal} />` (note `onCancel` is a NEW prop — see §25.6).
+3. On MFA success: call `beginImpersonation(target.user_id, mode, justification, mfaCode)`. Loading spinner. On success: modal closes, banner appears, navigation to `/dashboard`.
+
+### 25.6 MfaChallenge.tsx additive change
+
+Existing `src/components/MfaChallenge.tsx` already does: list factors → challenge → verify → onSuccess callback. Phase C needs to reuse this component but the existing `handleCancel` calls `supabase.auth.signOut()` — wrong for the justification modal where cancelling should just close the modal.
+
+Modification: add optional `onCancel?: () => void` prop. If provided, run that instead of signOut. Backwards-compatible — existing call sites (Login flow) continue to work because `onCancel` is undefined for them. One-prop additive change.
+
+### 25.7 Tab title / favicon / red border (new ImpersonationChrome)
+
+New file `src/components/impersonation/ImpersonationChrome.tsx`. Render-only side effects, no UI. Mounted by `ImpersonationProvider` when `isImpersonating === true`. Effects:
+
+- `useEffect`: prefix `document.title` with `[IMPERSONATING] `, restore on unmount.
+- `useEffect`: swap `<link rel="icon">` href to `/brain-icon-impersonating.png` (asset to be added — red dot version of brain-icon.png), restore on unmount.
+- 4 fixed-position 2px-wide red divs (top, bottom, left, right of viewport) for the border.
+
+### 25.8 ImpersonationBanner design (new)
+
+New file `src/components/impersonation/ImpersonationBanner.tsx`. Sticky-top fixed position, full-width, height ~48px, BrainWise orange (#F5741A) background, white text. Contents (left to right):
+
+- Mode pill: `OBSERVE` or `ACT` (white text, slightly darker orange background pill).
+- "Impersonating: {target_email}" text.
+- Countdown: "Time remaining: {mm:ss}" — driven by `remainingSeconds` from context.
+- "Exit Impersonation" button (white-bordered, white text, transparent background).
+
+Body content shifts down by banner height when `isImpersonating` (set a `--impersonation-banner-height: 48px` CSS variable on `body` when active, applied as `padding-top` on `body`).
+
+### 25.9 ProtectedRoute handling during impersonation: Option B locked
+
+Decision Session 52: `ProtectedRoute` does NOT bypass demographic/MFA/deactivation gates during impersonation. Reasoning:
+
+- The principle of impersonation is "see and act as the target user." If the target user has incomplete demographics, the super admin should see them on `/demographic-form` — that's the experience the target sees.
+- Avoids a class of UI inconsistency bugs where the super admin sees a different state than the target during integration testing.
+- Backend Tier 2 denylist is already the security layer enforcing that no mutations slip through.
+
+ACTION ITEM for Phase C-1 prompt: AUDIT the Tier 2 denylist (action types in `super_admin_action_types.denylist_during_impersonation`) to confirm the demographic-form-submit and mfa-enrollment-completion Edge Functions are denylisted. If they are not, add a Phase C-1 backend task to add them BEFORE shipping Phase C-1 frontend.
+
+### 25.10 Token swap mechanics
+
+`impersonation-start` Edge Function returns `{ access_token, refresh_token, session: {...} }`. Frontend calls `supabase.auth.setSession({ access_token, refresh_token })`. This triggers `auth.onAuthStateChange` SIGNED_IN, which propagates through `AuthProvider` → all hooks consuming `useAuth()` re-render → `useUserProfile` refetches based on new `user.id` (which is now the target). `RoleGuard` re-evaluates with the target's account_type and routes accordingly.
+
+`impersonation-end` returns the original super admin tokens. Same `setSession` flow restores the super admin session.
+
+Phase C-1 prompt MUST verify the actual response shape of `impersonation-start` and `impersonation-end` Edge Functions before writing the frontend integration code (recon read deferred to that prompt's pre-flight).
+
+### 25.11 Phase D `/settings/access-history` integration
+
+Top-level route, NOT nested under `/settings`. Registered in App.tsx alongside `/settings/privacy`, `/settings/billing` (flat sibling pattern, line 128-131 of current App.tsx). Page reads from `my_access_history` RPC. CSV export uses `export_audit_events` (BUT only super admins can call that — `my_access_history` does not have an export equivalent. Phase D adds a `my_access_history_export` RPC OR the frontend assembles CSV from the paginated RPC results client-side. Simpler path: client-side CSV from paginated results, capped at 1000 rows. Decision deferred to Phase D prompt construction.)
+
+Sidebar update in `src/components/AppSidebar.tsx`: add `{ title: 'Access History', url: '/settings/access-history', icon: History }` to BOTH `settingsSubItems` (line 137) and `coachSettingsSubItems` (line 143) arrays. Two-line change.
+
+### 25.12 Three-prompt sequencing (locked)
+
+- **Phase C-1 (infrastructure)**: ImpersonationProvider + ImpersonationBanner + ImpersonationChrome + MfaChallenge `onCancel` additive prop + App.tsx wiring + Tier 2 denylist audit. Ships dormant infrastructure (no entry point yet, banner never shows because no session is started).
+- **Phase C-2 (entry + flow)**: SuperAdminUsers page + JustificationModal + sidebar superAdminNav update + redirectByRole update + `impersonation-start`/`impersonation-end` integration. End-to-end impersonation goes live.
+- **Phase D (access history)**: AccessHistory page + sidebar settings update + route registration. Independent of impersonation. Low-risk.
+
+Each prompt is testable independently. Phase C-1 ships dormant; Phase C-2 lights it up; Phase D is unrelated.
+
