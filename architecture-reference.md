@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v42 - Sessions 47 + 48 closeout (Group D end-to-end SHIPPED, email_logs + Resend webhook + auto-refund automation SHIPPED)*
+*v43 - Session 49 closeout (Group A audit prequel SHIPPED, Group A Feature A1 Tier 1 backend SHIPPED, super_admin_action_types lookup table replaces CHECK, custom_access_token_hook for impersonation claims, _shared/impersonation_gate.ts helper deployed)*
 
 ## 1. Overview
 
@@ -970,3 +970,311 @@ Per-client scope reminder dispatch with rate limiting via email_logs query.
 
 **Frontend surfaces** in `PendingInvitations.tsx`: Resend button with toast variants per response (`success` → "Reminder sent", `rate_limited` → "Reminder already sent recently", `nothing_to_remind` → "Nothing to remind", `unauthorized` → "Unauthorized", other → generic error).
 
+## 19. `super_admin_action_types` lookup table (Session 49)
+
+Replaces the prior CHECK constraint on `super_admin_audit_log.action_type` with a foreign key to `public.super_admin_action_types`. SOC 2 CC6.1 evidence: this table enumerates every privileged super-admin action the platform supports.
+
+### 19.1 Schema
+
+```sql
+CREATE TABLE public.super_admin_action_types (
+  action_type            text PRIMARY KEY,
+  category               text NOT NULL,        -- enumerated CHECK
+  description            text NOT NULL,
+  tier                   text,                  -- 'tier1','tier2','tier3','tier4' or NULL
+  requires_mfa           boolean NOT NULL DEFAULT false,
+  requires_justification boolean NOT NULL DEFAULT false,
+  is_mutation            boolean NOT NULL DEFAULT true,
+  denylist_during_impersonation boolean NOT NULL DEFAULT false,
+  created_at             timestamptz NOT NULL DEFAULT now()
+);
+```
+
+Categories (CHECK-constrained): `impersonation`, `org_management`, `user_management`, `admin_role_management`, `contract_management`, `content_authoring`, `platform_observability`, `usage_management`, `mfa_management`, `audit_reporting`.
+
+### 19.2 Seeded action types (19 total)
+
+15 carried over from prior CHECK list (company_account_viewed, individual_record_viewed, version_created, version_deprecated, prompt_updated, aggregate_export_generated, platform_health_viewed, organization_created, corporate_contract_created, org_admin_assigned, org_admin_transferred, corporate_invitation_created, contract_upsert, ai_counter_reset, mfa_factor_reset).
+
+Plus 4 new for A1 impersonation: `impersonation_started`, `impersonation_ended`, `impersonation_action`, `impersonation_denied_action`.
+
+### 19.3 Adding new action types
+
+Group C and Group A A2 will add ~30+ more action types over Sessions 50-65. Convention: each feature-introducing migration that adds a privileged action MUST insert into this lookup table in the same migration. Pattern:
+
+```sql
+INSERT INTO public.super_admin_action_types (action_type, category, description, ...)
+VALUES ('coach_certification_revoked', 'admin_role_management', '...', ...)
+ON CONFLICT (action_type) DO NOTHING;
+```
+
+### 19.4 RLS
+
+`super_admin_action_types: super admin can read` (SELECT for `current_user_account_type() = 'brainwise_super_admin'`).
+`super_admin_action_types: service_role full access` (ALL with USING true, WITH CHECK true).
+
+## 20. Audit log infrastructure additions (Session 49)
+
+### 20.1 `super_admin_audit_log` new columns
+
+```sql
+ALTER TABLE public.super_admin_audit_log
+  ADD COLUMN ip_address inet,
+  ADD COLUMN user_agent text,
+  ADD COLUMN reason text,
+  ADD COLUMN before_value jsonb,
+  ADD COLUMN after_value jsonb,
+  ADD COLUMN mode text,
+  ADD COLUMN expires_at timestamptz,
+  ADD COLUMN ended_at timestamptz,
+  ADD COLUMN end_reason text;
+```
+
+`ip_address`/`user_agent` populated by calling Edge Functions. `reason` required for impersonation start and Tier 2/3 edits. `before_value`/`after_value` are best-effort jsonb snapshots. `mode` carries the raw mode string or, for impersonation events, prefixed format `impersonation:<observe|act>:<sub_action>`. `expires_at`/`ended_at`/`end_reason` populated only for impersonation_started rows (other action_types leave them NULL).
+
+Indexes added: `idx_super_admin_audit_log_mode` (partial WHERE mode IS NOT NULL), `idx_super_admin_audit_log_session_id`.
+
+### 20.2 `company_admin_audit_log` new columns
+
+```sql
+ALTER TABLE public.company_admin_audit_log
+  ADD COLUMN reason text,
+  ADD COLUMN before_value jsonb,
+  ADD COLUMN after_value jsonb,
+  ADD COLUMN super_admin_acting_as_user_id uuid REFERENCES users(id);
+```
+
+`super_admin_acting_as_user_id` is the dual-attribution column — when a super admin performs a company-admin-tier action via impersonation, this captures the super admin actor while `actor_user_id` still holds the impersonated user (org admins see the override in their normal audit feed).
+
+### 20.3 `log_super_admin_action()` helper RPC
+
+Standardized write path for `super_admin_audit_log`. Used by Group A A2 direct user editing, Group C revocation/direct-enrollment/mentor-assignment RPCs, and the impersonation-start/end Edge Functions.
+
+**Signature:** `(p_target_user_id uuid, p_target_org_id uuid, p_action_type text, p_before jsonb, p_after jsonb, p_reason text, p_mode text) RETURNS uuid`.
+
+**Actor derivation (Path 3 from Session 49 design):**
+1. Reads `current_setting('request.jwt.claims', true)::jsonb`
+2. If `imp_actor_user_id` claim present → that's the actor (impersonation context)
+3. Otherwise `auth.uid()` is the actor (direct super admin context)
+
+**Session ID derivation:**
+1. If `imp_session_id` claim present → use that (so audit_session_replay can group all events)
+2. Otherwise `gen_random_uuid()` per-action
+
+**Mode derivation:**
+1. If `imp_mode` claim present → prefix with `impersonation:<imp_mode>:`
+2. Otherwise pass through `p_mode`
+
+**Trust boundary:** caller is responsible for `assert_super_admin()` gating. The helper does NOT self-gate because in dual-attribution mode `auth.uid()` is the impersonated user (would fail self-gate). SECURITY DEFINER, owned by postgres.
+
+Returns the inserted row's UUID for callers that need to update `ended_at`/`end_reason` later (e.g., impersonation-end).
+
+## 21. A1 impersonation Tier 1 backend (Session 49)
+
+Per Group A scope section 2 (Feature A1 — User impersonation). All design decisions traceable to scope sections 2.2.1-2.2.11.
+
+### 21.1 `impersonation_sessions` table
+
+Server-side tracking for active and historical impersonation sessions.
+
+```sql
+CREATE TABLE public.impersonation_sessions (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  super_admin_user_id   uuid NOT NULL REFERENCES users(id),
+  target_user_id        uuid NOT NULL REFERENCES users(id),
+  mode                  text NOT NULL CHECK IN ('observe','act'),
+  justification         text NOT NULL CHECK (length >= 10),
+  started_at            timestamptz NOT NULL DEFAULT now(),
+  expires_at            timestamptz NOT NULL CHECK > started_at,
+  ended_at              timestamptz,
+  end_reason            text CHECK IN ('manual','timeout','forced'),
+  ip_address            inet,
+  user_agent            text,
+  audit_log_id          uuid REFERENCES super_admin_audit_log(id),
+  CONSTRAINT no_self_impersonation CHECK (super_admin_user_id <> target_user_id)
+);
+```
+
+**Unique active session per super admin:** `CREATE UNIQUE INDEX impersonation_sessions_one_active_per_super_admin ON impersonation_sessions (super_admin_user_id) WHERE ended_at IS NULL` — backstops nested impersonation prevention at the DB level (scope 2.2.11).
+
+**Immutability:** trigger `trg_impersonation_sessions_immutable` blocks DELETE entirely and blocks UPDATE on any column except `ended_at` and `end_reason`. Sessions cannot be modified once ended.
+
+**RLS:**
+- `impersonation_sessions: super admin can read all` (SELECT for super_admin)
+- `impersonation_sessions: target user can read own history` (SELECT WHERE target_user_id = auth.uid()) — powers the access-history page (scope 2.4.2 / 4.4.4)
+- `impersonation_sessions: service_role full access`
+
+### 21.2 `validate_impersonation_session(p_session_id uuid)` RPC
+
+Read-only check returning `{is_valid, reason, super_admin_user_id, target_user_id, mode, expires_at, ended_at}`. Called by `assert_impersonation_allows` for layer 1 enforcement and by Edge Functions for kill-switch checks. Reasons returned: `valid`, `session_not_found`, `session_ended`, `session_expired`. SECURITY DEFINER STABLE.
+
+### 21.3 `assert_impersonation_allows(p_action_category text)` RPC
+
+Layer 1 denylist enforcement. Returns `{status, imp_session_id, imp_actor_user_id, imp_target_user_id, imp_mode}` with status one of:
+- `no_impersonation` — no `imp_session_id` claim, caller proceeds normally
+- `act_allowed` — active act-mode session, caller must write `impersonation_action` audit row
+
+Raises `42501` (Permission denied) when:
+- Session is invalid (validation failed)
+- Mode is `observe` (all mutations blocked)
+- Mode is `act` AND category is on denylist
+
+**Denylist categories (9 total, mapped to scope 2.3.1-2.3.9):**
+- `identity_change` (2.3.1) — password/email/MFA/account deletion/ToS/consent
+- `assessment_submission` (2.3.2) — 168 items, EPN, demographics, peer access response
+- `privacy_consent` (2.3.3) — sharing prefs, demographic consent withdraw, share-with-coach toggle, peer access initiate
+- `financial_transaction` (2.3.4) — Stripe purchase, subscription cancel, payment update, coupon apply
+- `outbound_user_communication` (2.3.5) — AI chat send, peer access initiate
+- `permission_change` (2.3.6) — account_type modify, org membership, nested impersonation
+- `corporate_admin_action` (2.3.7) — bulk deactivation, supervisor assignment, admin promote/revoke, narratives, invitations
+- `coach_action` (2.3.8) — invite client, order assessment, certification module mark-complete
+- `lifecycle_action` (2.3.9) — corporate-to-individual conversion, pseudonymization
+
+Mode read from DB row (not JWT) as defense in depth against tampered JWT claims.
+
+Helper view `impersonation_denylist_categories()` returns the denylist categories with their scope-section mapping for documentation/reporting.
+
+### 21.4 `custom_access_token_hook(event jsonb)` Postgres function
+
+Auth Hook registered in Dashboard → Authentication → Hooks. Fires on every JWT issuance platform-wide. Reads `impersonation_sessions` for the user_id being authenticated; if active session exists AND `authentication_method` is `magiclink` or `token_refresh`, injects `imp_session_id`, `imp_actor_user_id`, `imp_mode`, `imp_expires_at` claims.
+
+**Auth method gate:** the `magiclink` / `token_refresh` filter prevents the target user's normal logins (password, oauth, otp) from accidentally inheriting impersonation context if they happen to log in during an active session.
+
+**Failure isolation:** entire body wrapped in `EXCEPTION WHEN OTHERS THEN RAISE WARNING ...; RETURN event; END` to ensure hook errors NEVER break platform auth. Hook errors logged via `RAISE WARNING` for monitoring.
+
+`GRANT EXECUTE ... TO supabase_auth_admin` (the auth system role); `REVOKE EXECUTE ... FROM public, authenticated, anon`.
+
+### 21.5 `check_mfa_freshness(p_session_id uuid, p_max_age_seconds integer)` RPC
+
+Service-role-only RPC that reads `auth.mfa_amr_claims` for a session and verifies a TOTP verification has happened within the last `p_max_age_seconds`. Returns `boolean`. Used by `impersonation-start` to enforce fresh MFA gate (scope 2.2.7).
+
+### 21.6 `impersonation-start` Edge Function
+
+**Auth:** Class A (verify_jwt=false, explicit auth.getClaims).
+
+**Gates (in order):**
+1. Authenticated request
+2. Caller is brainwise_super_admin (assert_super_admin RPC)
+3. Caller has fresh MFA (check_mfa_freshness, 5-min window)
+4. Target user exists
+5. Target user is not the caller (no self-impersonation)
+6. Caller has no other active session (DB UNIQUE constraint backstops)
+7. Mode is observe or act
+8. Justification length >= 10 chars
+
+**Flow:**
+1. Insert impersonation_sessions row (30-min expiry from now)
+2. log_super_admin_action with action_type='impersonation_started'
+3. Update sessions row with audit_log_id (link for access-history UI)
+4. auth.admin.generateLink({ type: 'magiclink', email: target_email })
+5. verifyOtp with hashed_token → real session as target user; hook fires and injects imp_* claims
+6. Return { imp_session_id, access_token, refresh_token, expires_at, mode, target_user }
+
+**Rollback:** if any post-insert step fails (audit, generateLink, verifyOtp), update sessions row with ended_at = now(), end_reason = 'forced'.
+
+### 21.7 `impersonation-end` Edge Function
+
+**Auth:** Class A using the impersonation JWT (caller is inside the session being ended).
+
+**Validation:** JWT must carry `imp_session_id` AND `imp_actor_user_id`. Sanity checks ensure JWT claims match the DB row's super_admin_user_id and target_user_id (defense in depth against tampered JWT).
+
+**Flow:** Update impersonation_sessions row with ended_at = now(), end_reason = 'manual'. Write log_super_admin_action with action_type='impersonation_ended'. Returns { imp_session_id, ended_at, duration_seconds }.
+
+### 21.8 `sweep_expired_impersonation_sessions` Edge Function
+
+**Auth:** Class C (cron-secret via X-Dispatcher-Secret header from `vault.decrypted_secrets WHERE name = 'departure_dispatcher_shared_secret'`).
+
+**Flow:** Find sessions where `ended_at IS NULL AND expires_at < now()`. End each with end_reason='timeout', ended_at = the original expires_at (not now — for accurate timeline). Direct INSERT into super_admin_audit_log (cron-context exception since log_super_admin_action requires auth.uid() which is null in cron context). Returns summary stats { sessions_ended, audit_rows_written, audit_rows_failed }.
+
+**Cron schedule:** `*/5 * * * *` (every 5 minutes). Worst-case post-expiry session lingering = 5 minutes. Frontend client-side timeout enforces user-visible countdown; this cron is the server-side backstop.
+
+### 21.9 SOC 2 control summary (CC6.1, CC6.6)
+
+- Privileged sessions time-bounded (30-min fixed)
+- Server-side session row + signed JWT — both must be valid for actions to proceed
+- Impersonation actions logged with actor (real super admin via JWT claim), target, IP, UA, justification, mode
+- Justification required at session start (10-char minimum, scope 2.2.6)
+- Fresh MFA gate at session start (scope 2.2.7, 5-min freshness)
+- Dual attribution captured automatically by log_super_admin_action via JWT claims
+- Audit log append-only (UPDATE/DELETE blocked at DB level via trg_immutable_audit_log)
+- Self-impersonation blocked (DB CHECK + Edge Function gate)
+- Nested impersonation blocked (DB UNIQUE INDEX + Edge Function gate)
+- Quarterly review runbook deferred (scope 2.4.3 / 4.4.5, due 90 days post-launch)
+
+### 21.10 Tier 2 deferred to Session 50
+
+The denylist enforcement rollout across the 27 Edge Functions identified in Session 49 recon is Tier 2 work. Helper module `_shared/impersonation_gate.ts` deployed and verified Session 49. Per-function splices in Session 50.
+
+## 22. `_shared/impersonation_gate.ts` Edge Function helper (Session 49)
+
+Canonical denylist enforcement helper for Tier 2 Edge Function rollout. Shared module bundled with each function deploy via the `files` array in deploy_edge_function.
+
+### 22.1 Exports
+
+```typescript
+export type ImpersonationDenylistCategory =
+  | "identity_change" | "assessment_submission" | "privacy_consent"
+  | "financial_transaction" | "outbound_user_communication"
+  | "permission_change" | "corporate_admin_action" | "coach_action"
+  | "lifecycle_action" | "read_only" | "other";
+
+export class ImpersonationDeniedError extends Error {
+  public readonly impSessionId: string | null;
+}
+
+export type ImpersonationGateResult =
+  | { gated: false }
+  | { gated: true; imp_session_id, imp_actor_user_id, imp_target_user_id, imp_mode: "act" };
+
+export async function enforceImpersonationGate(
+  callerClient: SupabaseClient,
+  category: ImpersonationDenylistCategory,
+): Promise<ImpersonationGateResult>;
+
+export async function logImpersonationAction(
+  callerClient: SupabaseClient,
+  args: { target_user_id, target_org_id, edge_function_name, before, after },
+): Promise<void>;
+```
+
+### 22.2 Standard usage pattern (for Tier 2 splices)
+
+```typescript
+import { enforceImpersonationGate, ImpersonationDeniedError } from "../_shared/impersonation_gate.ts";
+// or "./_shared/impersonation_gate.ts" depending on existing convention in target function
+
+// After auth.getClaims succeeds, before any mutation:
+try {
+  const gate = await enforceImpersonationGate(callerClient, "financial_transaction");
+  // Proceed with mutation. If gate.gated is true (act_allowed),
+  // call logImpersonationAction() AFTER mutation succeeds.
+} catch (err) {
+  if (err instanceof ImpersonationDeniedError) {
+    return new Response(
+      JSON.stringify({
+        error: err.message,
+        code: "IMPERSONATION_DENIED",
+        imp_session_id: err.impSessionId,
+      }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+  throw err;
+}
+```
+
+### 22.3 Hybrid auth pattern (generate-airsa-* style)
+
+Functions that accept either user JWT or x-internal-secret header must short-circuit the gate when isInternal=true:
+
+```typescript
+if (callerUserId !== null) {
+  // user JWT path — enforce gate
+  await enforceImpersonationGate(callerClient, "corporate_admin_action");
+}
+// internal-secret path skips gate (no impersonation context possible)
+```
+
+### 22.4 Validation status (Session 49)
+
+Helper deployed via `test-impersonation-gate` Edge Function (test-only, kept deployed for future ad-hoc testing). Probe with no-auth confirmed clean 401 response — module bundling resolved correctly, no module-not-found errors. RPC interaction validation deferred to first real Tier 2 splice in Session 50.

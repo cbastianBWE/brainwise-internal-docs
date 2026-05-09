@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v40 - Sessions 47 + 48 closeout (combined)*
+*v41 - Session 49 closeout (Group A audit prequel + A1 Tier 1 backend SHIPPED)*
 
 ## Priority key
 
@@ -185,42 +185,111 @@ Single largest-shipping session in BrainWise history. Group D Phases 4-5-6 shipp
 
 **Terms of Service updated to v2** (effective May 9, 2026). Section 5.3 Coach-paid client assessments rewritten to reference auto-refund policy. Section 5.5 Refund policy rewritten with three buckets (Individual / Coach-paid / Corporate) and explicit eligibility rules. File path: `src/content/legal/termsContent.ts` (Terms.tsx is a thin wrapper consuming this content via LegalPageLayout).
 
-## Group C three-week sequencing plan (locked Session 48)
+## Session 49 deltas summary
 
-**Cohort target: three weeks from Session 48 close.** Decision: build Option A (full authoring UI), not Option C (SQL seed). Cole has PTP content drafted and prefers to author in the UI. Estimate: 10 sessions over 21 days, ~3.3 sessions per week. Buffer is thin; one lost session is recoverable, two is not.
+Group A audit prequel SHIPPED + Group A Feature A1 Tier 1 backend SHIPPED. Larger than scoped at session open (originally just the prequel), but kept entirely backend-only and verified end-to-end before close. Cohort timeline preserved (Plan A confirmed: A1 frontend in Session 50, Group C starts Session 51).
 
-### Session 49 (Group A audit prequel — small)
-Schema additions per Group A scope Section 4.3.2:
-- `super_admin_audit_log`: ip_address inet, user_agent text, reason text, before_value jsonb, after_value jsonb, mode text, expires_at timestamptz, ended_at timestamptz, end_reason text
-- `company_admin_audit_log`: reason text, before_value jsonb, after_value jsonb, super_admin_acting_as_user_id uuid (nullable)
-- New `log_super_admin_action()` helper RPC with consistent argument signature
+**Audit log schema additions.** `super_admin_audit_log` got 9 new columns (ip_address, user_agent, reason, before_value, after_value, mode, expires_at, ended_at, end_reason) plus 2 new partial indexes (mode, session_id). `company_admin_audit_log` got 4 new columns (reason, before_value, after_value, super_admin_acting_as_user_id with FK to users) plus 1 partial index. Both tables had RLS preserved unchanged.
 
-Why first: Group C uses Group A audit infrastructure for revoke certification (Q9), direct enrollment (Q4B), mentor assignment (Q3). Without these columns, every super-admin Group C action gets retrofitted later. Estimate: 1 session, possibly half-session if clean.
+**Option C lookup table.** Replaced `super_admin_audit_log_action_type_check` CHECK constraint (15 hardcoded strings) with FK to new `public.super_admin_action_types` table. 19 action types seeded across 8 categories (15 carried from CHECK + 4 new for impersonation: impersonation_started, impersonation_ended, impersonation_action, impersonation_denied_action). Table includes metadata columns (requires_mfa, requires_justification, is_mutation, denylist_during_impersonation) for future enforcement use.
 
-### Sessions 50-58 (Group C Phases 1-10, Option A)
-Compressed phase ordering:
-- **Session 50**: Phase 1 (Schema, all 17 tables) + Phase 2 start (Core RPCs)
-- **Session 51**: Phase 2 finish + Phase 3 (Notifications subsystem)
-- **Session 52**: Phase 4 start (Authoring UI cert path / curriculum / module CRUD)
-- **Session 53**: Phase 4 finish (Content item editor polymorphic UI, quiz authoring) — Cole starts authoring PTP content after this lands
-- **Session 54**: Phase 5 start (Trainee learning UI shell + first 3 content viewers)
-- **Session 55**: Phase 5 finish (remaining content viewers, video progress, cert path detail)
-- **Session 56**: Phase 6 (Mentor review UI)
-- **Session 57**: Phase 7 (Actor flow) + Phase 8 verification (Order Assessment gating already shipped Session 46)
-- **Session 58**: Phase 9 (Resources tab redesign) + Phase 10 (Polish)
+**`log_super_admin_action()` helper RPC.** Standardized argument signature `(p_target_user_id, p_target_org_id, p_action_type, p_before, p_after, p_reason, p_mode)`, returns inserted row's UUID. Actor derivation reads `request.jwt.claims` for `imp_actor_user_id` (Path 3 — works correctly pre-A1 with auth.uid() fallback AND post-A1 with impersonation claims). Session id from `imp_session_id` claim if present (so audit_session_replay groups all events from one impersonation). Mode prefixed with `impersonation:<imp_mode>:` when in impersonation context. Caller responsibility to gate on assert_super_admin (helper does NOT self-gate because in dual-attribution land auth.uid() = impersonated user).
 
-### Sessions 59-65 (Group A remaining work)
-Impersonation, Tier 1/2/3 user editing, audit reporting UI, user access history page. Independent of Group C completion. Sequencing flexible based on cohort launch needs.
+**A1 impersonation infrastructure.** New `impersonation_sessions` table with immutability trigger (only ended_at + end_reason mutable, never DELETE), unique-active-per-admin INDEX (DB-level nested impersonation prevention), no-self-impersonation CHECK, justification length >= 10 CHECK. `validate_impersonation_session()` SECURITY DEFINER STABLE for cheap repeated calls. `assert_impersonation_allows()` enforces 9-category denylist mapped to scope 2.3.1-2.3.9 (identity_change, assessment_submission, privacy_consent, financial_transaction, outbound_user_communication, permission_change, corporate_admin_action, coach_action, lifecycle_action). Mode read from DB row not JWT (defense in depth).
+
+**Custom Access Token Hook for impersonation claims.** `public.custom_access_token_hook(event jsonb)` injects imp_session_id, imp_actor_user_id, imp_mode, imp_expires_at into JWTs at issuance time. Auth method gate: only fires on `magiclink` or `token_refresh` (prevents target user's normal logins from inheriting impersonation context). EXCEPTION WHEN OTHERS wrapper ensures hook errors NEVER break platform auth. Cole registered hook in Dashboard → Auth → Hooks. 4 unit tests passing (no-session passthrough, auth-method-gate-blocks-password, magiclink-injects-all-four-claims, malformed-event-safe-fallback).
+
+**MFA freshness via `check_mfa_freshness()`.** Service-role-only RPC reading `auth.mfa_amr_claims` for the caller's session, returns boolean for "TOTP within last p_max_age_seconds." Used by impersonation-start to enforce fresh-MFA gate (scope 2.2.7). Pattern B confirmed (Supabase Auth supports mid-session TOTP via auth.mfa.challenge() + auth.mfa.verify()).
+
+**Three new Edge Functions.** `impersonation-start` v1: 8-gate pipeline (auth → super_admin → fresh MFA → target exists → not self → no nested → mode valid → justification valid), insert sessions row, write audit, generateLink + verifyOtp produces target-user session, hook decorates JWT with imp_* claims. Rollback on any post-insert failure. `impersonation-end` v1: ends session via impersonation token, dual-attribution audit row writes correctly via JWT-claim-aware helper. `sweep_expired_impersonation_sessions` v1: Class C cron auth, ends expired-but-not-ended sessions with end_reason='timeout', uses direct INSERT into super_admin_audit_log (cron-context exception since log_super_admin_action requires auth.uid()). Verified end-to-end: pre-expired test session swept, audit row written, ended_at = expires_at exactly.
+
+**`*/5 * * * *` cron schedule.** `sweep_expired_impersonation_sessions` runs every 5 minutes (not the daily/15-min stagger convention) because impersonation sessions are 30-minute lifecycle. Worst-case post-expiry session lingering = 5 minutes server-side; frontend client-side timeout enforces the user-visible countdown.
+
+**`_shared/impersonation_gate.ts` helper module.** Canonical Tier 2 enforcement helper. Exports `enforceImpersonationGate(client, category)` returning `{gated: false}` or `{gated: true, ...}` or throwing `ImpersonationDeniedError`. Plus `logImpersonationAction()` for callers to write impersonation_action audit rows after allowed mutations. Module deployed via `test-impersonation-gate` Edge Function (test-only) to validate bundling. Probe with no-auth confirmed clean 401 — module bundling resolved correctly.
+
+**Edge Function reconnaissance complete.** Surveyed all 52 deployed Edge Functions (48 pre-Session 49 + 4 added this session). 27 require Tier 2 gating per scope 2.6.3 expanded for new functions (AIRSA supervisor flow, Group D coach functions, lifecycle functions, set-account-type — none of which were in the original scope's ~12-function list). 25 explicitly do not need gating with documented rationale: 8 per-user AI functions (user-scoped, ownership-checked), 3 cron, 2 webhook, 2 read-only, 3 internal helpers, 3 impersonation infrastructure, 3 public unauthenticated forms, 1 admin utility. Recon doc captured in Session 49→50 handoff.
+
+**Architectural decision: Custom Access Token Hook over separate cookie.** Analyzed three options (JWT manual mint, separate cookie, Custom Access Token Hook). Chose Custom Access Token Hook with auth_method gate. Rationale: lowest build cost (~1 session backend vs 2-3 for cookie), preserves existing helper RPCs (no rework), single signed channel for SOC 2 defensibility, hook errors cannot break platform auth (EXCEPTION wrapper). Decision documented inline in custom_access_token_hook function comments.
+
+**Edge Function `verify_jwt: false` convention preserved.** All Session 49 Edge Functions use `verify_jwt: false` with explicit `auth.getClaims` inside the function body. Matches existing convention. Build queue item: consider migration toward `verify_jwt: true` as SOC 2 hardening pass.
+
+## Group C three-week sequencing plan (revised Session 49)
+
+**Cohort target: three weeks from Session 48 close.** Plan A confirmed Session 49: Tier 2 backend + A3 Phase 2 + A1 frontend land before Group C starts (Cole prefers to finish A1 while context is fresh). Group C ships Sessions 51-60 instead of 50-58 — slight slip but still within the cohort window.
+
+### Session 49 (SHIPPED)
+
+Group A audit prequel + Group A Feature A1 Tier 1 backend SHIPPED:
+- `super_admin_audit_log` 9 new columns + `company_admin_audit_log` 4 new columns
+- `super_admin_action_types` lookup table (Option C) replaces CHECK constraint, 19 action types seeded
+- `log_super_admin_action()` helper RPC with JWT-claim-aware actor derivation
+- `impersonation_sessions` table with immutability + unique-active-per-admin
+- `validate_impersonation_session()`, `assert_impersonation_allows()` RPCs (full 9-category denylist)
+- `check_mfa_freshness()` RPC, `custom_access_token_hook()` Postgres function
+- 3 new Edge Functions: `impersonation-start`, `impersonation-end`, `sweep_expired_impersonation_sessions` (cron at `*/5 * * * *`)
+- `_shared/impersonation_gate.ts` helper module deployed via `test-impersonation-gate`
+- Full reconnaissance of all 52 deployed Edge Functions: 27 require Tier 2 gating, 25 explicitly do not
+- Cole registered hook in Dashboard ✓
+
+### Session 50 (Tier 2 + A3 Phase 2 + A1 frontend — Plan A)
+
+Cole's preference: finish A1 entirely before Group C. Session 50 may absorb all of Tier 2 + A3 Phase 2 + A1 frontend OR may break naturally between phases.
+
+**Phase A: Tier 2 backend rollout** — splice `enforceImpersonationGate(callerClient, "<category>")` into 27 Edge Functions per the recon classification (see Session 49→50 handoff for full list with categories). Per-function deploy verification via no-auth probe = clean 401 (not 500).
+
+**Phase B: A3 Phase 2 backend** — four reporting RPCs: `list_audit_events()`, `audit_event_detail()`, `audit_session_replay()`, `export_audit_events()`. SECURITY DEFINER, super-admin gated. Plus user-scoped variants for the access-history page.
+
+**Phase C: A1 impersonation frontend** — justification modal with mode selector and target user lookup, fresh MFA TOTP challenge before impersonation-start, persistent orange banner with countdown / mode / Exit button, browser tab title prefix `[IMPERSONATING]`, favicon swap with red dot, 2px red viewport border, token swap logic for impersonation access_token + refresh_token, exit flow calling impersonation-end.
+
+**Phase D: `/settings/access-history` page** — user-facing access history for all users (launch blocker A1 per scope 2.4.2). Shows impersonation sessions, super admin direct edits (when A2 ships), individual_record_viewed events affecting the user. Read-only, paginated, CSV export.
+
+Natural break points: end of Phase A → Session 51 starts Phase B; end of Phase B → Session 51 starts Phase C; etc. Group C Phase 1 always starts in the session AFTER Session 50's last phase completes.
+
+### Sessions 51-60 (Group C Phases 1-10, Option A)
+
+Same compressed phase ordering as before, just shifted by 1 session:
+- **Session 51**: Phase 1 (Schema, all 17 tables) + Phase 2 start (Core RPCs)
+- **Session 52**: Phase 2 finish + Phase 3 (Notifications subsystem)
+- **Session 53**: Phase 4 start (Authoring UI cert path / curriculum / module CRUD)
+- **Session 54**: Phase 4 finish (Content item editor polymorphic UI, quiz authoring) — Cole starts authoring PTP content after this lands
+- **Session 55**: Phase 5 start (Trainee learning UI shell + first 3 content viewers)
+- **Session 56**: Phase 5 finish (remaining content viewers, video progress, cert path detail)
+- **Session 57**: Phase 6 (Mentor review UI)
+- **Session 58**: Phase 7 (Actor flow) + Phase 8 verification (Order Assessment gating already shipped Session 46)
+- **Session 59**: Phase 9 (Resources tab redesign) + Phase 10 (Polish)
+- **Session 60**: Buffer / launch readiness
+
+### Sessions 61-65 (Group A remaining work)
+
+A2 (direct user editing — Tier 1/2/3 fields), A3 Phase 3 super admin reporting UI, A3 Phase 5 quarterly review runbook, refund processing UI for individuals.
 
 ### Parallel work (Cole)
-Authoring PTP cert path content in the UI starting Session 53 onward. Content needed: 5 curricula minimum, ~20 modules, content items across all 7 types. By cohort launch date, content must be authored, mentor assigned, trainees enrolled.
+
+- Authoring PTP cert path content in the UI starting Session 54 onward
+- Privacy policy update with admin-access clause (hard launch blocker for A1, scope 2.4.1)
+- Coordinate with auditor on A1 design before launch (scope section 6.2 known gaps)
 
 ### Risk register
-- Lovable disasters on polymorphic content editor (Phase 4) — highest single risk
+
+- Tier 2 rollout risk: 27 deploy splices means 27 chances to break a production function. Per-function probe verification mitigates. Rollback path: `get_edge_function` previous version + redeploy. Highest single Session 50 risk.
+- Lovable disasters on polymorphic content editor (Phase 4 / Session 53-54) — second highest
 - Decision stalls during build (build sessions need fast Cole responsiveness)
 - Cohort content authoring stalling — Cole is the bottleneck if authoring runs slower than UI ships
 - Notification subsystem bugs cascading into all later phases (Phase 3 needs thorough impersonation testing)
-- 21 days lost to ~1 missed session is recoverable; 2 missed sessions threaten the date
+- A1 launch blockers (privacy policy update, access-history page) are NOT on the Group C critical path — A1 launch can lag cohort by sessions
+
+## Build queue items added Session 49
+
+- **Tier 2 enforcement rollout** (Session 50) — 27 Edge Functions, see Session 49→50 handoff for full list and categories
+- **A3 Phase 2 reporting RPCs** (Session 50 or 51) — list_audit_events, audit_event_detail, audit_session_replay, export_audit_events
+- **A1 impersonation frontend** (Session 50 or 51) — justification modal, MFA challenge, banner, favicon, viewport border, token swap, exit flow
+- **`/settings/access-history` page** (Session 50 or 51) — launch blocker A1
+- **Standardize on `auth.getClaims` across all Edge Functions** — `ai-chat` uses `auth.getUser` while everyone else uses `auth.getClaims`. Migrate ai-chat to getClaims for consistency. Low priority.
+- **Migrate verify_jwt: false → verify_jwt: true on sensitive Edge Functions** — SOC 2 hardening pass; defensible either way but tightening reduces a class of bug. Low priority.
+- **Align brainwise-blueprint Lovable repo with deployed Edge Function reality** — repo tracks ~10 functions, 52 deployed. Low priority, no blocking work depends on it.
+- **Consider `is_test` column on `super_admin_audit_log`** — Session 49 left 9 test marker rows that can't be deleted (immutability trigger). Cleaner filtering than `WHERE detail->>'test' IS NULL`. Low priority.
+- **`impersonation_denied_action` audit row writes** — when assert_impersonation_allows raises 42501, the calling Edge Function could write an audit row capturing the denied attempt. Builds SOC 2 evidence of enforcement. Add during Tier 2 rollout if pacing allows; otherwise build queue item.
+- **Background-job CSV export for >5000-row audit reporting** — A3 Phase 2's export_audit_events may need async pattern for large date ranges. Decide based on observed query performance during build.
 
 ## Verified bugs with explicit fix instructions
 
