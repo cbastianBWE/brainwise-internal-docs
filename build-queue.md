@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v42 - Session 50 closeout (Tier 2 impersonation gate rollout PARTIAL — 17 of 23 functions shipped, 6 remaining)*
+*v43 - Session 51 closeout (Tier 2 impersonation gate rollout COMPLETE — 23 of 23 functions shipped; Phase B/C/D open for Session 52)*
 
 ## Priority key
 
@@ -213,6 +213,33 @@ Group A audit prequel SHIPPED + Group A Feature A1 Tier 1 backend SHIPPED. Large
 
 **Edge Function `verify_jwt: false` convention preserved.** All Session 49 Edge Functions use `verify_jwt: false` with explicit `auth.getClaims` inside the function body. Matches existing convention. Build queue item: consider migration toward `verify_jwt: true` as SOC 2 hardening pass.
 
+## Session 50 deltas summary
+
+Tier 2 impersonation gate rollout PARTIAL — 17 of 23 in-scope Edge Functions spliced and probed. Floor was Phase A only; B and C did not start.
+
+The 17 deployed: `set-account-type` v43 (permission_change), `ai-chat` v31 (outbound_user_communication), `delete-account` v8 (identity_change), `create-checkout` v49 (financial_transaction), `customer-portal` v35 (financial_transaction), `coach_invitation_revoke` v4 (coach_action), `coach_invitation_resend` v2 (coach_action), `reactivate-account` v8 (lifecycle_action), `airsa-supervisor-reminder` v4 (outbound_user_communication; recat from corporate_admin_action — self-rater initiates, not admin), `assign_epn_send` v9 (corporate_admin_action), `deactivate-and-notify` v7 (corporate_admin_action), `bulk-deactivate-and-notify` v7 (corporate_admin_action), `bulk_coach_invite` v4 (coach_action), `invitation_send` v10 (corporate_admin_action), `bulk_invitation_send` v9 (corporate_admin_action), `calculate-scores` v44 (assessment_submission), `submit-epn-assessment` v7 (assessment_submission). Each verified via no-auth probe (HTTP 401 or sanitized 500 — no module-bundling failures).
+
+Four functions removed from the original 27-function Tier 2 list as misclassified: `peer-access-respond` and `verify-conversion` (email-link unauthenticated forms with token query param, no JWT possible) and `airsa-supervisor-invite` and `send-departure-emails` (Class B internal-secret receivers, no caller user JWT possible). Their CALLERS are gated, which is the correct architectural placement. Tier 2 list reduces from 27 to 23 functions.
+
+Helper RPC behavior verified end-to-end via direct SQL JWT-claim simulation (5 test cases — all pass). DETAIL field format `imp_session_id=<uuid>` confirmed to match helper TypeScript regex `/imp_session_id=([0-9a-f-]+)/i`.
+
+Three architectural learnings captured in architecture-reference.md §23:
+- §23.2 Edge Function file-path conventions (4 distinct prefix styles)
+- §23.3 Gate client requirement: anon-key + JWT, NEVER service-role (silent-failure mode)
+- §23.4 Tier 2 recon corrections (4 functions reclassified)
+
+Pre-existing security observation flagged but out of scope: `reactivate-account` allows any authenticated user to reactivate any deleted account by passing the email — no caller-vs-target ownership check. The impersonation gate adds defense for the impersonation case; the broader hole is a separate hardening item.
+
+## Session 51 deltas summary
+
+Tier 2 impersonation gate rollout COMPLETE — final 6 corporate_admin_action AI narrative generators shipped. 23 of 23 in-scope functions spliced.
+
+Six functions deployed: `generate-departure-export` v8 (lifecycle_action — recon correction #5, recategorized from corporate_admin_action because caller is the deactivated employee retrieving their own data export, not an admin), `generate-airsa-org-narrative` v4 (HYBRID auth — gate only fires when `!isInternal`; internal-secret path skips the gate), `generate-cross-instrument-recommendations` v9, `generate-dashboard-narrative` v24, `generate-nai-delta-narrative` v12, `generate-ptp-delta-narrative` v9. Each verified via no-auth probe — clean HTTP 401.
+
+One architectural delta surfaced and logged in architecture-reference.md §23.7: `Supabase:deploy_edge_function` prepends `source/` to the entrypoint_path automatically. Pass `entrypoint_path: "index.ts"` (naked, no prefix). Passing `source/index.ts` causes path doubling and BadRequestException. Discovered during the `generate-dashboard-narrative` deploy: first attempt with `source/index.ts` failed, retry with naked `index.ts` succeeded. This corrects/clarifies §23.2 which had implied the entrypoint_path was passed verbatim.
+
+Phase B (A3 Phase 2 reporting RPCs), Phase C (A1 impersonation frontend), and Phase D (`/settings/access-history` page) move to Session 52. Group C Phase 1 originally targeted Session 51 → now Session 53 at earliest depending on whether Phase B/C/D fit in one session.
+
 ## Group C three-week sequencing plan (revised Session 49)
 
 **Cohort target: three weeks from Session 48 close.** Plan A confirmed Session 49: Tier 2 backend + A3 Phase 2 + A1 frontend land before Group C starts (Cole prefers to finish A1 while context is fresh). Group C ships Sessions 51-60 instead of 50-58 — slight slip but still within the cohort window.
@@ -280,14 +307,15 @@ A2 (direct user editing — Tier 1/2/3 fields), A3 Phase 3 super admin reporting
 
 ## Build queue items added Session 49
 
-- **Tier 2 enforcement rollout** (Session 50 PARTIAL — 17 of 23 shipped, 6 remaining for Session 51)
+- **Tier 2 enforcement rollout** (Session 51 COMPLETE — 23 of 23 functions shipped)
   - SHIPPED Session 50 (17 functions): set-account-type v43 (permission_change), ai-chat v31 (outbound_user_communication), delete-account v8 (identity_change), create-checkout v49 (financial_transaction), customer-portal v35 (financial_transaction), coach_invitation_revoke v4 (coach_action), coach_invitation_resend v2 (coach_action), reactivate-account v8 (lifecycle_action), airsa-supervisor-reminder v4 (outbound_user_communication; recat from corporate_admin_action — self-rater initiates, not admin), assign_epn_send v9 (corporate_admin_action), deactivate-and-notify v7 (corporate_admin_action), bulk-deactivate-and-notify v7 (corporate_admin_action), bulk_coach_invite v4 (coach_action), invitation_send v10 (corporate_admin_action), bulk_invitation_send v9 (corporate_admin_action), calculate-scores v44 (assessment_submission), submit-epn-assessment v7 (assessment_submission)
-  - REMAINING Session 51 (6 AI narrative generators, all corporate_admin_action): generate-departure-export, generate-airsa-org-narrative (HYBRID auth — only gate when isInternal === false), generate-cross-instrument-recommendations, generate-dashboard-narrative, generate-nai-delta-narrative, generate-ptp-delta-narrative. Pattern is mature; mechanical splice using established splice template. Estimated 1.5-2hr at start of Session 51.
-  - **CORRECTIONS Session 50**: 4 functions removed from Tier 2 list. (1) `peer-access-respond` and (2) `verify-conversion` invoked by clicking email link with token query param — no JWT, no impersonation context possible. (3) `airsa-supervisor-invite` and (4) `send-departure-emails` are Class B internal-secret callers (server-to-server with x-internal-secret header) — no caller user JWT, gate would always return `no_impersonation`. All four reclassified to "explicitly NOT gated". The CALLERS of the Class B functions ARE gated (e.g. deactivate-and-notify is gated; it then calls send-departure-emails). Tier 2 list reduces from 27 to 23 functions.
-  - **VERIFICATION** (Session 50): Full helper RPC behavior tested end-to-end via direct SQL JWT-claim simulation. Verified: no-JWT → no_impersonation; bogus session_id → 42501; observe mode → 42501 with imp_session_id detail; act mode + denylisted category → 42501; act mode + read_only → act_allowed with full session metadata. DETAIL field format `imp_session_id=<uuid>` matches helper regex `/imp_session_id=([0-9a-f-]+)/i`. Per-function probe: every deployed function returns expected 401/500 (no module-bundling failures). Frontend integration test deferred to Phase C completion.
-- **A3 Phase 2 reporting RPCs** (Session 50 or 51) — list_audit_events, audit_event_detail, audit_session_replay, export_audit_events
-- **A1 impersonation frontend** (Session 50 or 51) — justification modal, MFA challenge, banner, favicon, viewport border, token swap, exit flow
-- **`/settings/access-history` page** (Session 50 or 51) — launch blocker A1
+  - SHIPPED Session 51 (6 functions): generate-departure-export v8 (lifecycle_action — recon correction #5, recategorized from corporate_admin_action), generate-airsa-org-narrative v4 (corporate_admin_action HYBRID — gate only when !isInternal), generate-cross-instrument-recommendations v9 (corporate_admin_action), generate-dashboard-narrative v24 (corporate_admin_action), generate-nai-delta-narrative v12 (corporate_admin_action), generate-ptp-delta-narrative v9 (corporate_admin_action). All probed clean HTTP 401.
+  - **CORRECTIONS Session 50** (4 functions): `peer-access-respond` and `verify-conversion` (email-link unauthenticated, no JWT possible); `airsa-supervisor-invite` and `send-departure-emails` (Class B internal-secret receivers, no caller user JWT). All four reclassified to "explicitly NOT gated"; their CALLERS are gated. Tier 2 list reduced 27 → 23.
+  - **CORRECTION Session 51** (1 function): `generate-departure-export` recategorized from corporate_admin_action → lifecycle_action. Caller is the deactivated employee retrieving their own data export, not an admin. Both denylisted equally; runtime identical, audit label more accurate.
+  - **VERIFICATION** (Session 50 + 51): Full helper RPC behavior tested end-to-end via direct SQL JWT-claim simulation. DETAIL format `imp_session_id=<uuid>` matches helper regex. Per-function probe: every deployed function returns expected 401 (no module-bundling failures). Frontend integration test deferred to Phase C completion.
+- **A3 Phase 2 reporting RPCs** (Session 52) — list_audit_events, audit_event_detail, audit_session_replay, export_audit_events, my_access_history
+- **A1 impersonation frontend** (Session 52) — justification modal, MFA challenge, banner, favicon, viewport border, token swap, exit flow
+- **`/settings/access-history` page** (Session 52) — launch blocker A1
 - **Standardize on `auth.getClaims` across all Edge Functions** — `ai-chat` uses `auth.getUser` while everyone else uses `auth.getClaims`. Migrate ai-chat to getClaims for consistency. Low priority.
 - **Migrate verify_jwt: false → verify_jwt: true on sensitive Edge Functions** — SOC 2 hardening pass; defensible either way but tightening reduces a class of bug. Low priority.
 - **Align brainwise-blueprint Lovable repo with deployed Edge Function reality** — repo tracks ~10 functions, 52 deployed. Low priority, no blocking work depends on it.

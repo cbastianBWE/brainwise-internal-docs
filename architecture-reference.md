@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v44 - Session 50 closeout (Tier 2 impersonation gate rollout — 17 of 23 functions shipped, helper deep verification complete, file-path conventions documented, four recon corrections logged)*
+*v45 - Session 51 closeout (Tier 2 impersonation gate rollout COMPLETE — 23 of 23 functions shipped, entrypoint_path convention clarified, recon correction #5 logged)*
 
 ## 1. Overview
 
@@ -1279,7 +1279,7 @@ if (callerUserId !== null) {
 
 Helper deployed via `test-impersonation-gate` Edge Function (test-only, kept deployed for future ad-hoc testing). Probe with no-auth confirmed clean 401 response — module bundling resolved correctly, no module-not-found errors. RPC interaction validation deferred to first real Tier 2 splice in Session 50.
 
-## 23. Tier 2 impersonation gate rollout (Session 50)
+## 23. Tier 2 impersonation gate rollout (Sessions 50-51)
 
 ### 23.1 Helper module deep verification
 
@@ -1345,3 +1345,43 @@ Pre-existing security observation flagged but out of scope: any authenticated us
 ### 23.6 airsa-supervisor-reminder category re-categorization
 
 Session 49 recon classified `airsa-supervisor-reminder` as `corporate_admin_action`. During Session 50 reading, the actual semantics turned out to be: the SELF-RATER (a regular employee) clicks a button to nudge their supervisor. The action is sending an email from the user's identity. The correct category is `outbound_user_communication`. Both categories are denylisted in observe and act mode, so enforcement behavior is identical — but the category label matters for audit trail accuracy and future reporting queries.
+
+### 23.7 Session 51 deltas
+
+Two updates to the Session 50 architectural learnings, surfaced during the final 6-function rollout in Session 51.
+
+**`entrypoint_path` convention clarification.** The `Supabase:deploy_edge_function` MCP tool prepends `source/` to the `entrypoint_path` value automatically. Pass `entrypoint_path: "index.ts"` (naked, no `source/` prefix). Passing `source/index.ts` causes path doubling and a `BadRequestException` at deploy time.
+
+This corrects the implication in §23.2 that the prefix returned by `get_edge_function` (e.g. `source/index.ts`) is what should be passed back into `deploy_edge_function`. The returned path is the platform's absolute internal path; the `entrypoint_path` parameter is interpreted relative to the implicit `source/` root that the deploy tool creates. The file `name` field for files in the bundle stays as `index.ts` and `_shared/impersonation_gate.ts`.
+
+This was discovered during the `generate-dashboard-narrative` deploy: first attempt with `entrypoint_path: "source/index.ts"` failed with BadRequestException, retry with `entrypoint_path: "index.ts"` succeeded. Subsequent deploys (`generate-nai-delta-narrative` v12, `generate-ptp-delta-narrative` v9) used the naked convention and succeeded first try.
+
+For the four file-path conventions documented in §23.2, the `entrypoint_path` parameter values that work are:
+
+| Style | Files block uses | entrypoint_path parameter |
+|-------|------------------|---------------------------|
+| Naked | `index.ts`, `_shared/<file>.ts` | `index.ts` |
+| `functions/` prefix | `functions/<name>/index.ts`, `functions/_shared/<file>.ts` | `functions/<name>/index.ts` |
+| `supabase/functions/` prefix | `supabase/functions/<name>/index.ts`, `supabase/functions/_shared/<file>.ts` | `supabase/functions/<name>/index.ts` |
+| Custom (set-account-type) | `set-account-type/index.ts`, `_shared/<file>.ts` | `set-account-type/index.ts` |
+
+In all cases, drop the `source/` prefix that `get_edge_function` returns when constructing the deploy parameter.
+
+**Recon correction #5: `generate-departure-export` is `lifecycle_action`.** The function was originally tagged `corporate_admin_action` in the Session 49 recon. In practice the caller is the deactivated `corporate_employee` retrieving their own data export — a self-service lifecycle action, not an admin operation against another user. Recategorized to `lifecycle_action` (v8 deploy).
+
+Both categories are denylisted in observe and act mode, so runtime behavior is unchanged. The category label matters for audit trail accuracy and future reporting queries.
+
+This brings the running total of recon corrections to 5: four from Session 50 (`peer-access-respond`, `verify-conversion`, `airsa-supervisor-invite`, `send-departure-emails` — all reclassified out of Tier 2 entirely) plus one from Session 51 (`generate-departure-export` — recategorized within Tier 2).
+
+**Session 51 deploy summary.** Six functions, all probed clean HTTP 401:
+
+| Function | Version | Category |
+|----------|---------|----------|
+| `generate-departure-export` | v8 | `lifecycle_action` |
+| `generate-airsa-org-narrative` | v4 | `corporate_admin_action` (HYBRID — gate only when !isInternal) |
+| `generate-cross-instrument-recommendations` | v9 | `corporate_admin_action` |
+| `generate-dashboard-narrative` | v24 | `corporate_admin_action` |
+| `generate-nai-delta-narrative` | v12 | `corporate_admin_action` |
+| `generate-ptp-delta-narrative` | v9 | `corporate_admin_action` |
+
+23 of 23 in-scope Tier 2 functions now spliced.
