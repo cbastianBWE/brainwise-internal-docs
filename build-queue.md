@@ -1,6 +1,6 @@
 # BrainWise Build Queue
 
-*v44 - Session 52 closeout (A3 Phase 2 audit reporting RPCs SHIPPED — 6 RPCs deployed and verified; Phase C frontend recon COMPLETE; Phase C-1, C-2, and D scoped for Session 53)*
+*v46 - Session 53 CLOSE (Group A Phase C + Phase D fully shipped and verified end-to-end. Six manual integration tests passed: post-login redirect, kebab-dropdown actions, justification modal with embedded MFA, active impersonation banner with chrome and exit, ProtectedRoute gate-redirect, act-mode denylist with friendly error toast, RLS WITH CHECK on user_demographics blocks impersonated writes, Access History page with 36 events and CSV export. Eight backend hotfixes shipped to fix issues surfaced by testing. Session 54 opens Group C — Coach Certification + Resources / Learning Paths.)*
 
 ## Priority key
 
@@ -262,6 +262,89 @@ Three-prompt sequencing locked for Session 53:
 - **Phase D**: AccessHistory page + sidebar settings update + route registration.
 
 Architecture-reference.md §20 schema clarification logged in §24.6: §20.1 and §20.2 ALTER TABLEs are CORRECT and verified against live DB. The actor column on `super_admin_audit_log` is `super_admin_user_id`, target is `affected_user_id`, org is `company_id`, jsonb detail is `detail`. The actor column on `company_admin_audit_log` is `actor_user_id`, target is `target_user_id`, org is `organization_id`, jsonb detail is `action_details`. Names matter for any RPC writing or filtering against these tables.
+
+## Session 53 deltas summary
+
+Phase C-1 pre-flight backend SHIPPED. Three Edge Function/migration deliveries unblocked the Phase C-1 Lovable prompt and closed two security gaps that Session 52 architectural decisions had assumed already covered.
+
+**impersonation-end v2 (Session 53)**: Modified to mint fresh super admin tokens via generateLink + verifyOtp pattern (mirrors impersonation-start). Returns `{ success, restored: true, super_admin_user_id, access_token, refresh_token, expires_at }` at top level. Critical sequencing: ended_at set BEFORE generateLink fires, guaranteeing custom_access_token_hook does not stamp imp_* claims on the restored super admin token. Failure path returns `{ restored: false, restore_error }` with HTTP 200 — session is still ended at DB level even if token mint fails; frontend signs out and redirects to /login. Architecture-reference §26.1.
+
+**is_impersonating() and is_impersonating_act() helpers + user_demographics RLS WITH CHECK (Session 53)**: Two SECURITY DEFINER STABLE helpers that read JWT claims for active impersonation, defense-in-depth verifying against impersonation_sessions DB row. Both granted EXECUTE to authenticated. user_demographics policy refactored from FOR ALL into split policies: SELECT allowed regardless of impersonation context (super admin observers can read), but INSERT/UPDATE/DELETE require NOT is_impersonating(). Both observe AND act mode block writes. Verification matrix passed all five scenarios. Architecture-reference §26.2.
+
+**identity-mutation Edge Function v1 (Session 53)**: Single chokepoint for identity_change category mutations going through Supabase auth APIs (auth.updateUser for password/email; auth.mfa.enroll/unenroll). Class A explicit (verify_jwt=false; auth.getClaims inside). Calls enforceImpersonationGate("identity_change") first, raises 403 IMPERSONATION_DENIED for any impersonation context. Forwards via callerClient (pattern Z) so auth.mfa.enroll/unenroll work natively. Phase C-1.5 frontend rewires (folded into Phase C-1 prompt) point ResetPassword.tsx, Settings.tsx saveEmail, MfaEnrollment.tsx handleEnroll, and any unenroll surface at the wrapper. Architecture-reference §26.3.
+
+**§25.9 partial reversal locked**: Original Session 52 decision that ProtectedRoute does NOT bypass demographic/MFA/deactivation gates during impersonation rested on the assumption that the Tier 2 backend denylist alone covered all paths. That assumption was false (RLS-only direct writes and Supabase auth APIs bypass the gate). With §26.2 and §26.3 closing the database and application paths, the frontend complement is to ALSO redirect /onboarding, /demographic-consent, /demographic-form, /mfa-enrollment, /peer-sharing-optin to /dashboard during impersonation. Defense in depth, three layers. Architecture-reference §26.4.
+
+**Phase C-2 hotfix (mid-session 53)**: `/super-admin/users` page crashed with blank screen + console TypeError when search results contained any user with `account_type IS NULL`. Two production users in this state (`test@test.com`, `testclientbwe+testnewuser@gmail.com`) — both half-finished signups where the user authenticated but never picked an account type. Root cause: `formatAccountType` and `accountTypeBadgeVariant` in Users.tsx called `.split(...)` and `switch` on null. Fixed at the backend layer by patching `search_impersonation_targets` to `COALESCE(account_type, 'unknown')` so the RPC contract effectively guarantees a string. Frontend null-guards (Layer 2) added as defense in depth via small follow-up Lovable prompt. Schema-level fix to `users.account_type` nullability deferred — see new build queue item below.
+
+**Three new build queue items logged (Session 53 mid)**:
+
+- **MEDIUM (post-launch)**: Refactor `current_user_mfa_satisfied()` from factor-existence check to session-AAL check. Currently a user with a verified factor returns mfaSatisfied=true regardless of session aal1/aal2 — weaker than Supabase native AAL-based enforcement. Required for proper post-impersonation re-MFA flow. Architecture-reference §26.6.
+- **LOW (post-launch)**: Replace hardcoded `v_denylist text[]` array in `assert_impersonation_allows` with a SELECT against a new `super_admin_denylist_categories` table. Drop the vestigial `super_admin_action_types.denylist_during_impersonation` column in the same migration. Benefits: queryable denylist for SOC 2 evidence collection. Architecture-reference §26.5.
+- **LOW (post-launch)**: Audit other RLS-only direct-write tables for impersonation gaps. user_demographics was the obvious one; sweep for `users` self-update fields, `user_subscription_preferences`, `user_results_consent` etc. Add `NOT is_impersonating()` to WITH CHECK on any table where a super admin should not be able to mutate as the target.
+- **MEDIUM (post-launch)**: Investigate and clean up `users.account_type IS NULL` rows. Currently 2 users in this state (1 marked is_internal_test=true, 1 marked false despite testclientbwe email pattern). Either backfill to `individual` based on signup intent, or constrain the column NOT NULL once data is clean. Today's hotfix masks the symptom at the RPC layer (COALESCE to 'unknown') but the underlying schema permits a state that no UX can produce intentionally.
+- **HOOK HARDENING SHIPPED Session 53 close**: `custom_access_token_hook` now distinguishes legitimate impersonation-start token mints from stranded-session contamination. For `'otp'`/`'magiclink'` initial mints, the hook requires the matching `impersonation_sessions` row was created < 60 seconds ago (impersonation-start mints within ~2s; stranded rows are minutes+ old). For `'token_refresh'`, the hook requires the incoming JWT already carries `imp_session_id` matching the active row (refreshes preserve, never create). Investigated `auth.sessions` DELETE trigger as alternative; Supabase does NOT delete auth.sessions on logout (only expires them via expires_at), so a delete trigger would never fire on signOut events. The hook freshness gate solves the same problem at the right layer. Stranded rows still get cleaned by the existing 30-min cron sweep, but they can no longer pollute subsequent target-user logins while pending cleanup.
+
+- **NICE-TO-HAVE (post-launch)**: Frontend `SIGNED_OUT` listener that calls `impersonation-end` before the JWT is destroyed. Belt-and-suspenders on top of the hook freshness gate. The user clicks Log Out → ImpersonationProvider's auth state listener catches `SIGNED_OUT` → calls impersonation-end if currently impersonating → updates DB row ended_at promptly. Race condition risk: JWT may already be invalidating by the time the call fires, so impersonation-end could 401. Acceptable — the cron sweep is the floor, the hook gate is the security boundary, this would just clean up the audit timeline faster.
+- **LOW (post-launch)**: AccessHistory.tsx frontend null-guard for `formatActionType(action_category)`. Backend defense added in Session 53 (RPC now COALESCEs `action_category` to `'organization_admin_action'` for company_admin source rows), but frontend also calls `.replace()` on the value so a future RPC regression would crash again. Mirror the pattern from Users.tsx null-guard work.
+
+Phase C-1, C-2, D Lovable prompts unblocked. Session 53 continues with frontend prompts.
+
+**Phase C-2 frontend SHIPPED**: One Lovable prompt covering 7 files. 2 new (Users.tsx super admin search page with debounced query, kebab-dropdown action menu per row, separator above destructive Force pseudonymization stub; JustificationModal with two-step flow — justification + mode radio, then embedded MfaChallenge with onCancel back-to-step-1, plus error-code-aware toasts for MFA_REQUIRED/NESTED_IMPERSONATION/SELF_IMPERSONATION/TARGET_NOT_FOUND); 5 modified (ImpersonationProvider extends interface with targetEmail field populated via localStorage stash keyed by session_id, with cleanup in all three endImpersonation branches; ImpersonationBanner displays email when present and falls back to monospace user_id; App.tsx registers /super-admin/users route with RoleGuard + SuperAdminSessionProvider wrapping pattern and replaces /super-admin layout-only fallback with Navigate redirect; useAuth.redirectByRole changes super admin landing from /super-admin/health to /super-admin/users; AppSidebar adds User Management nav entry with UserSearch icon between My Results and Platform Health). Verified file-by-file post-Lovable: kebab-dropdown action pattern with five menu items in correct order, account type badges per the brand mapping (destructive for super_admin, default for org/company admin, secondary for coach, outline for individual/corporate), self-impersonation prevention at UX layer, debounced search at 250ms with p_limit 25, all four table states handled (empty/loading/error/no-results/results). Architecturally Phase C is complete; end-to-end impersonation flow live pending Cole's manual integration test.
+
+**Phase D frontend SHIPPED**: One Lovable prompt covering 3 files. 1 new (AccessHistory.tsx at /settings/access-history — six columns When/Action/Actor/Source/Mode/Reason, source badges destructive=Super Admin/default=Org Admin, mode badges secondary=Observe/outline=Act, pagination 50 per page hidden when single page, Path A CSV export with 200-per-call RPC pagination up to 1000 cap, all states handled). 2 modified (App.tsx registers route as sibling of /settings/billing, no RoleGuard needed since auth wrapper handles it; AppSidebar adds Access History entry to BOTH settingsSubItems and coachSettingsSubItems arrays between Privacy & Permissions and Billing & Receipts using already-imported History icon). Verified file-by-file post-Lovable: pagination logic correct, CSV column structure matches spec, data flowed through cleanly.
+
+**Mid-session hotfixes shipped (Session 53)**:
+
+- search_impersonation_targets COALESCE account_type and paginated default-load (multi-field search across email + full_name + organization_name; total_count window function for pagination; includes self after frontend self-impersonation prevention proven sufficient at UX layer)
+- check_mfa_freshness reads BOTH auth.mfa_amr_claims AND auth.mfa_challenges.verified_at (Supabase doesn't write amr_claims rows on subsequent mfa.verify calls of an already-aal2 session; the verified_at fallback bridges this) — Architecture-reference §26.8
+- custom_access_token_hook accepts 'otp' as valid impersonation auth method (Supabase records verifyOtp({type:'magiclink'}) as 'otp' regardless of link type), then tightened with 60s freshness gate so stranded sessions can't contaminate normal user logins — Architecture-reference §26.7
+- log_super_admin_action skips impersonation: prefix on lifecycle events (impersonation_started, impersonation_ended, impersonation_denied_action) for grouping parity — Architecture-reference §26.9
+- my_access_history defaults action_category to 'organization_admin_action' for company_admin source rows (RPC was returning NULL which crashed AccessHistory.tsx formatActionType) — Architecture-reference §26.11
+- identity-mutation friendly error toasts via new src/lib/identityMutation.ts helper that parses error.context.json() for FunctionsHttpError and surfaces "This action is blocked while impersonating" message for IMPERSONATION_DENIED code — Architecture-reference §26.12
+
+**Manual integration tests passed end-to-end (Session 53 close)**:
+
+- T1.1-T1.22: User Management page — landing redirect, sidebar entry, default 25-user load, pagination Next, org search, kebab dropdown structure, null-account-type "Unknown" badge rendering without crash
+- T2.1-T2.7: Dropdown menu — Impersonate enabled, four stubs disabled with "(coming soon)", separator above Force pseudonymization
+- T3.1-T3.18: Justification modal — title, description with target email, justification gate at 10 chars, mode radio with Observe default, character counter, Continue gate, embedded MfaChallenge step 2, full chrome on impersonation start (orange banner with OBSERVE/ACT pill, target email, countdown 30:00→0, Exit button, red 4px viewport border, [IMPERSONATING] tab title, navy "B" red dot favicon)
+- T4.1-T4.5: Exit Impersonation — banner removed, border removed, tab title restored, lands on /super-admin/users, sidebar shows super admin nav
+- Audit log query: impersonation_started + impersonation_ended pair linked by session_id with 20-second duration and end_reason='manual'; lifecycle events have clean mode column ('observe', not 'impersonation:observe:observe')
+- T-E: Self-impersonation prevention — search cbastian, confirm Impersonate disabled with "(cannot impersonate yourself)" hint
+- T-B: Act-mode denylist (security half) — email change attempt during act mode returned 403 IMPERSONATION_DENIED, Phil's email unchanged in DB
+- T-B-UX: Act-mode denylist (UX half after hotfix) — friendly toast: "This action is blocked while impersonating. Identity changes (email, password, MFA) are not permitted during impersonation, even in act mode."
+- T-C-RLS: user_demographics RLS WITH CHECK — gender_identity edit attempt and consent_withdraw button both showed optimistic toast success but DB writes blocked at RLS layer; hard refresh restored Phil's actual values; SQL verification confirmed gender_identity=Man and consent_withdrawn_at=null untouched. **Most important security verification of the entire impersonation security stack passed.**
+- T-C: ProtectedRoute gate-redirect — manual /demographic-form URL navigation while impersonating bounces to /dashboard (banner persists)
+- T-D: Phase D Access History — orgmember view shows 36 events on record (30 super_admin + 4 impersonation lifecycle + 2 company_admin), all six columns render correctly, badges display per brand mapping, CSV download produces well-formed file with all 36 rows
+
+## Session 53 close — Group A Phase C + Phase D done
+
+Group A architectural state at end of Session 53:
+
+| Item | State |
+|---|---|
+| A1 — User impersonation | **DONE** end-to-end (backend + frontend + UI flow + audit verification + RLS + denylist) |
+| A2 — Direct user editing | Tier 1 backend SHIPPED Session 49; remainder DEFERRED behind Group C |
+| A3 Phase 1 — Audit schema additions | DONE (Session 49) |
+| A3 Phase 2 — Reporting RPCs | DONE (Session 52: list_audit_events, audit_event_detail, export_audit_events, audit_session_replay) |
+| A3 Phase 3 — Super admin /super-admin/audit reporting UI | DEFERRED behind Group C |
+| A3 Phase 4 — User-facing /settings/access-history | **DONE** Session 53 |
+| A3 Phase 5 — Quarterly review runbook | OPERATIONAL, not code; first review due 90d after launch |
+
+Cole's intent at Session 53 close: Group C ships next, then the residual Group A super-admin assignment + completion-tracking work for curricula/modules/content items follows immediately. Group C Phase 4 (authoring UI Option A) already includes super admin curriculum/module/cert path management portal at /super-admin/learning, including direct curriculum assignment, mentor assignment, and cert path enrollment. So most of what Cole wants on the super admin LMS-management side gets built as part of Group C Phase 4 if Option A is chosen at Session 54 start.
+
+## Session 54 opening — Group C Coach Certification + Resources / Learning Paths
+
+Two source documents in project knowledge:
+
+- **BrainWise_Group_C_Scope_Coach_Certification_v1.docx** — locked at Session 34 scoping; 13 foundational decisions Q1-Q13, 17 tables (15 NEW, 2 EXTENDS), 10 build phases
+- **BrainWise_Group_A_Scope_Super_Admin_Core_v1.docx** — for cross-reference; Q4B in Group C (super admin direct enrollment) is shared infrastructure
+
+Phase 1 (schema) is the immediate first task. All 17 tables, RLS, indexes, notification types catalog seed data. Backend-only, verified via SQL. See session-handoffs/session-53-to-54.md for full Phase 1-10 sequencing.
+
+**Decision required at Session 54 start (not deferred mid-build)**: Phase 4 Option A (full authoring UI in /super-admin/learning) vs Option C (hybrid with SQL seed). Cole's preference is Option A because that's what supports the "super admin can set up, assign, and view completion of curricula, modules, content items" requirement. Cost: ~2-3x the frontend work of Option C. Recommend Option A unless PTP launch timeline forces the schedule risk.
+
+
 
 ## Group C three-week sequencing plan (revised Session 49)
 

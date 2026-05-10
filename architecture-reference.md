@@ -1,6 +1,6 @@
 # BrainWise System Architecture Reference
 
-*v46 - Session 52 closeout (A3 Phase 2 audit reporting RPCs SHIPPED — 6 RPCs deployed, §20 schema clarified in §24.6, pg_trgm extension enabled, Phase C frontend recon complete in §25)*
+*v48 - Session 53 CLOSE (Group A Phase C + Phase D fully shipped and verified end-to-end. New §26.7 hook freshness gate, §26.8 mfa_challenges fallback, §26.9 lifecycle event mode column, §26.10 paginated multi-field search, §26.11 my_access_history category default, §26.12 identityMutation helper. §25.9 partially reversed in §26.4. §25.10 corrected in §26.1. Session 54 opens Group C — Coach Certification + Resources / Learning Paths.)*
 
 ## 1. Overview
 
@@ -1574,4 +1574,295 @@ Sidebar update in `src/components/AppSidebar.tsx`: add `{ title: 'Access History
 - **Phase D (access history)**: AccessHistory page + sidebar settings update + route registration. Independent of impersonation. Low-risk.
 
 Each prompt is testable independently. Phase C-1 ships dormant; Phase C-2 lights it up; Phase D is unrelated.
+
+
+## 26. Session 53 backend pre-flight deltas
+
+Three pre-flight backend tasks shipped before Phase C-1 frontend prompt construction. Each was triggered by recon findings that contradicted Session 52 §25 locked decisions; each contradiction is captured below alongside the corrected design.
+
+### 26.1 impersonation-end v2: super admin token mint (corrects §25.10)
+
+**Contradiction found**: §25.10 stated "impersonation-end returns the original super admin tokens. Same setSession flow restores the super admin session." Code recon of impersonation-end v1 showed it returns only `{ success, imp_session_id, ended_at, duration_seconds }` — no tokens. The architecture reference assumption was speculative and not grounded in code.
+
+**Resolution (Decision 1, Path 2)**: Modify impersonation-end to mint fresh tokens for the original super admin so the frontend can restore the super admin session without forced re-login.
+
+**impersonation-end v2 deployed Session 53**. Sequence:
+
+1. Validate JWT, extract imp_session_id and imp_actor_user_id from claims.
+2. Fetch impersonation_sessions row, verify actor and target match JWT claims.
+3. UPDATE ended_at FIRST so custom_access_token_hook does not stamp imp_* claims on the new super admin token (the hook filters on ended_at IS NULL).
+4. log_super_admin_action with action_type='impersonation_ended'. Attribution still records super admin to target because we use callerClient which still holds imp_actor_user_id.
+5. Look up super admin email from public.users via adminClient.
+6. generateLink (magiclink) + verifyOtp on a fresh anon client. Produces an aal1 session for the super admin.
+7. Return { success, restored: true, super_admin_user_id, access_token, refresh_token, expires_at } at top level.
+
+**Token AAL note**: The minted super admin session is aal1 (magic-link single-factor). Current MFA gate (current_user_mfa_satisfied) checks factor existence not session AAL, so super admin lands cleanly back on /super-admin/users without being bounced through MFA. Session-AAL-aware MFA gating is its own architectural pass — logged as a build queue item (medium priority, post-launch).
+
+**Failure path**: If super admin lookup or token mint fails, the function returns `{ success: true, restored: false, restore_error: ... }`. The session has already been ended at the DB level; only the client-side restoration fails. Frontend handles `restored: false` by signing out the impersonation session and redirecting to /login.
+
+**Critical sequencing**: ended_at is set BEFORE generateLink fires for the super admin. This is defensive: even in a hypothetical scenario where the super admin's user_id matched some impersonation_sessions.target_user_id (which should never happen since super admins shouldn't be targets), the hook would skip claim stamping because ended_at is no longer null.
+
+### 26.2 is_impersonating() and is_impersonating_act() helpers + user_demographics RLS
+
+**Contradiction found**: §25.9 stated that the Tier 2 backend denylist is "the security layer enforcing that no mutations slip through" during impersonation. Recon revealed Tier 2 enforcement only fires when an Edge Function explicitly calls `enforceImpersonationGate(callerClient, category)`. It does NOT fire on:
+
+- Direct Supabase client table writes gated only by RLS (e.g. `user_demographics`, where the policy was `user_id = auth.uid()`). During act-mode impersonation the JWT's auth.uid() is the target's user_id, so RLS allowed the write through.
+- Supabase auth APIs (mfa.enroll, mfa.challenge, mfa.verify, auth.updateUser) — platform endpoints that don't go through user-defined Edge Functions.
+
+This was a gap in the §25.9 security-layer claim.
+
+**Resolution (Decision 2, Path C, RLS half)**: Add helpers that read JWT claims for an active impersonation session, then add RLS WITH CHECK clauses on user-self-write tables that block writes during impersonation.
+
+**Helpers deployed**:
+
+```
+public.is_impersonating() RETURNS boolean STABLE SECURITY DEFINER
+  - Reads request.jwt.claims for imp_session_id
+  - Confirms session is live (ended_at IS NULL AND expires_at > now()) by querying impersonation_sessions
+  - Returns true if both conditions hold; false otherwise
+  - Defense in depth: doesn't trust JWT alone, verifies against DB row
+
+public.is_impersonating_act() RETURNS boolean STABLE SECURITY DEFINER
+  - Same as is_impersonating() but additionally requires mode = 'act'
+  - Reads mode from DB row (canonical), not from JWT (defense against tampered claims)
+  - Returns false if no matching active session (COALESCE wraps the SELECT result)
+```
+
+Both granted EXECUTE to authenticated.
+
+**user_demographics policy refactor**: The original FOR ALL policy `(user_id = auth.uid())` was split into four policies:
+
+- `user_demographics: users read their own row` — FOR SELECT, USING `(user_id = auth.uid())`. No impersonation block on reads, so super admin observers can SELECT target demographics.
+- `user_demographics: users insert their own row, no impersonation` — FOR INSERT, WITH CHECK `(user_id = auth.uid() AND NOT public.is_impersonating())`.
+- `user_demographics: users update their own row, no impersonation` — FOR UPDATE, USING `(user_id = auth.uid())`, WITH CHECK same as INSERT.
+- `user_demographics: users delete their own row, no impersonation` — FOR DELETE, USING `(user_id = auth.uid() AND NOT public.is_impersonating())`.
+
+Service role policy unchanged (full access).
+
+**Verification matrix** (all ✓):
+
+| Scenario | is_impersonating() | is_impersonating_act() | INSERT into user_demographics |
+|---|---|---|---|
+| No JWT (service role direct) | false | false | (RLS bypassed) |
+| JWT, no imp_session_id claim | false | false | succeeds |
+| JWT, imp_session_id pointing at ended session | false | false | succeeds |
+| JWT, observe-mode active session | true | false | blocked (insufficient_privilege) |
+| JWT, act-mode active session | true | true | blocked (insufficient_privilege) |
+
+**Semantics decision**: BOTH observe and act mode block writes. Reasoning: a super admin should never write the target's demographics, regardless of mode. Observe mode redundantly blocks (the gate function already blocks all observe-mode writes), but having NOT is_impersonating() in WITH CHECK is harmless and makes the policy self-documenting at the table level.
+
+### 26.3 identity-mutation Edge Function wrapper
+
+**Resolution (Decision 2, Path C, application half)**: Single chokepoint for identity_change category mutations that go through Supabase auth APIs (auth.updateUser for password/email; auth.mfa.enroll/unenroll). These bypass Edge Function Tier 2 gating when called via the Supabase JS client directly. The wrapper calls enforceImpersonationGate first, then forwards via the caller's authenticated client.
+
+**identity-mutation v1 deployed Session 53**. Class A explicit (verify_jwt=false; auth.getClaims inside).
+
+Body shape discriminator-based:
+- `{ action: "update_password", new_password }` → callerClient.auth.updateUser({ password })
+- `{ action: "update_email", new_email }` → callerClient.auth.updateUser({ email })
+- `{ action: "mfa_enroll" }` → callerClient.auth.mfa.enroll({ factorType: "totp" }), returns { factor_id, qr_code, secret }
+- `{ action: "mfa_unenroll", factor_id }` → callerClient.auth.mfa.unenroll({ factorId })
+
+Gate: enforceImpersonationGate(callerClient, "identity_change"). identity_change is in the denylist for both observe and act, so any impersonation context blocks the call. On gate denial: 403 with `{ code: "IMPERSONATION_DENIED", imp_session_id }`.
+
+**Frontend rewires required (Phase C-1.5, folded into Phase C-1 prompt)**:
+
+- src/pages/ResetPassword.tsx line 49: `supabase.auth.updateUser({ password })` → call identity-mutation with action="update_password".
+- src/pages/Settings.tsx saveEmail() line 364: `supabase.auth.updateUser({ email })` → call identity-mutation with action="update_email".
+- src/pages/MfaEnrollment.tsx handleEnroll() and any unenroll surface in Settings.tsx → call identity-mutation with action="mfa_enroll" or "mfa_unenroll".
+- src/components/MfaChallenge.tsx is unaffected (challenge/verify steps don't include enroll).
+
+**Why pattern Z (gate + perform via caller token) was chosen** over admin-perform: Supabase auth admin API has `auth.admin.updateUserById` for password/email but no admin equivalent for `mfa.enroll/unenroll`. Pattern Z uses callerClient throughout, working uniformly for all four operations.
+
+**Future-proofing**: Any future identity_change path (phone-number change, recovery email, account merge, etc.) routes through the same wrapper, automatically gated. SOC 2 audit log review benefits from a single chokepoint for identity_change events.
+
+### 26.4 §25.9 partial reversal: ProtectedRoute redirects gate routes during impersonation
+
+**Reversal**: Original §25.9 Option B locked: "ProtectedRoute does NOT bypass demographic/MFA/deactivation gates during impersonation." That decision rested on the false assumption that the Tier 2 backend denylist alone protected all mutation paths from those gate routes. §26.2 and §26.3 close the actual mutation paths at the database and Edge Function layers; the frontend complement is to ALSO redirect the gate routes during impersonation.
+
+**New behavior locked Session 53**: When ImpersonationProvider context indicates `isImpersonating === true`, ProtectedRoute treats the impersonation as authoritative and redirects gate routes to /dashboard:
+
+- /onboarding → /dashboard
+- /demographic-consent → /dashboard
+- /demographic-form → /dashboard
+- /mfa-enrollment → /dashboard
+- /peer-sharing-optin → /dashboard
+
+(/departed remains accessible because deactivation observation is a legitimate impersonation use case.)
+
+**Defense in depth**: This is layer 3 of three layers. Layers 1-2 (RLS WITH CHECK + identity-mutation Edge Function wrapper) close the database and application paths. Layer 3 (frontend redirect) prevents the super admin from even reaching the surface that would attempt those mutations.
+
+This is implemented in Phase C-1 frontend prompt as a small ProtectedRoute modification: read isImpersonating from ImpersonationProvider, short-circuit gate routes when true.
+
+### 26.5 Vestigial column finding: super_admin_action_types.denylist_during_impersonation
+
+**Side observation logged Session 53**: The `super_admin_action_types` table has a `denylist_during_impersonation` boolean column. The actual runtime denylist mechanism (`assert_impersonation_allows`) is category-based and uses a hardcoded text array literal; it does not consult `super_admin_action_types` at all. The column is therefore vestigial — never read by any code path.
+
+Logged as build queue item (LOW priority, post-launch): replace the hardcoded `v_denylist text[]` array in `assert_impersonation_allows` with a SELECT against a new `super_admin_denylist_categories` table (one row per category, `category text PRIMARY KEY`, `denylist_during_act boolean`, `comment text`). Drop the dead `super_admin_action_types.denylist_during_impersonation` column in the same migration.
+
+Benefits: queryable denylist for SOC 2 evidence collection, no schema drift between RPC and registry, no behavior change at deploy (table seed = current array).
+
+### 26.6 useMfaSatisfied semantics finding
+
+Not a Session 53 ship; logged for future MFA gate hardening pass.
+
+`current_user_mfa_satisfied()` checks whether the user has a verified factor in `auth.mfa_factors`, NOT whether the current session is `aal2`. This means:
+
+- A user with a verified TOTP factor returns `mfaSatisfied: true` regardless of whether their current session is aal1 or aal2.
+- The MFA gate is enforcing "user has set up MFA" not "user has presented MFA on this session" — weaker than Supabase's native AAL-based enforcement.
+
+For Session 53 this means: when impersonation-end mints a fresh aal1 session for the super admin, ProtectedRoute does NOT bounce them through MFA (because they have a verified factor). Good UX, but a SOC 2 weakness worth fixing in a later pass.
+
+Logged build queue item (MEDIUM priority, post-launch): refactor current_user_mfa_satisfied to check session AAL via `auth.aal()` claim or a new `current_user_session_aal()` helper, requiring `aal2` for sensitive surfaces. Will require coordinated frontend changes to handle the post-impersonation re-MFA flow gracefully.
+
+### 26.7 custom_access_token_hook freshness gate (Session 53 close)
+
+**Problem surfaced during Phase D testing**: When a super admin logged out via the sidebar instead of clicking "Exit Impersonation", the `impersonation_sessions` row stayed `ended_at IS NULL`. The next time the target user attempted to log into their own account, the hook detected the stranded active row, matched on `auth_method='otp'` (since Supabase records `verifyOtp` as 'otp' regardless of link type — used by both impersonation-start AND normal login flows), and stamped imp_* claims onto the target's normal login token. The target user landed in their own account but with imp claims attached, which surfaced as confusing MFA errors and ImpersonationProvider bootstrap failures.
+
+**Investigation**: Considered an `AFTER DELETE` trigger on `auth.sessions` to auto-end matching impersonation_sessions on logout. Verified via `has_table_privilege` that we can create such a trigger. But verified empirically that **Supabase does NOT delete auth.sessions rows on logout** (cbastian had 11 active auth.sessions rows despite multiple logouts; only expiry via `expires_at` is enforced). The trigger would never fire on signOut events. Wrong layer.
+
+**Fix locked Session 53 close**: Tighten the hook itself with a freshness gate distinguishing legitimate impersonation-start mints from stranded-row contamination.
+
+For `'otp'` and `'magiclink'` initial token mints: require the matching `impersonation_sessions` row was created within the last 60 seconds. impersonation-start mints the token within ~2 seconds of inserting the row (via verifyOtp), so this catches the legitimate flow with 30x slack. Stranded rows (minutes+ old by definition) take the early return — no claims stamped.
+
+For `'token_refresh'`: require the incoming JWT already carries `imp_session_id` matching the active row. The hook receives existing claims via `event -> 'claims'`, so this check is trivial. Refreshes preserve impersonation; they cannot create one out of nothing.
+
+```sql
+IF v_auth_method = 'token_refresh' THEN
+  v_existing_imp_session := v_claims ->> 'imp_session_id';
+  IF v_existing_imp_session IS NULL OR v_existing_imp_session <> v_session.id::text THEN
+    RETURN event;
+  END IF;
+ELSE
+  -- magiclink/otp initial mint
+  v_row_age_seconds := EXTRACT(EPOCH FROM (now() - v_session.started_at));
+  IF v_row_age_seconds > 60 THEN
+    RETURN event;
+  END IF;
+END IF;
+```
+
+**Net effect**: stranded rows (which still get cleaned by the existing 30-min cron sweep `sweep_expired_impersonation_sessions`) can no longer pollute subsequent target-user logins while pending cleanup. The 60-second window is generous enough that no legitimate impersonation-start flow could miss it (the verifyOtp-to-token-mint path has no possible 60s delay).
+
+### 26.8 check_mfa_freshness reads auth.mfa_challenges.verified_at as fallback
+
+**Problem surfaced mid-Session 53**: After completing MFA verification on an already-aal2 session (e.g., super admin already logged in with MFA, navigates to /super-admin/users, clicks Impersonate, completes the JustificationModal MFA challenge), `check_mfa_freshness` returned false. Root cause: Supabase does NOT write a new row to `auth.mfa_amr_claims` when re-verifying MFA on a session that's already aal2. The amr_claims table only captures the most recent factor that elevated the session to aal2, not subsequent verifications.
+
+**Fix**: `check_mfa_freshness` now reads BOTH `auth.mfa_amr_claims` AND `auth.mfa_challenges.verified_at`. The `mfa_challenges` table records every verification attempt, including re-verifications on already-aal2 sessions. The function returns true if EITHER source shows a verified factor within the freshness window (default: 5 minutes).
+
+```sql
+RETURN (
+  EXISTS (
+    SELECT 1 FROM auth.mfa_amr_claims
+    WHERE session_id = v_session_id
+      AND created_at > now() - p_window
+  )
+  OR EXISTS (
+    SELECT 1 FROM auth.mfa_challenges c
+    JOIN auth.mfa_factors f ON f.id = c.factor_id
+    WHERE f.user_id = v_uid
+      AND c.verified_at IS NOT NULL
+      AND c.verified_at > now() - p_window
+  )
+);
+```
+
+**Side benefit**: this also closes a smaller edge case where the user verifies MFA on a different session than the one initiating the impersonation request (multi-tab usage). The verified_at fallback catches the verification regardless of which session it occurred on.
+
+### 26.9 log_super_admin_action lifecycle event mode column
+
+**Problem surfaced mid-Session 53**: Audit log queries paired `impersonation_started` and `impersonation_ended` rows by `session_id`, but the `mode` column on lifecycle rows showed `'impersonation:observe:observe'` instead of just `'observe'`. The double-prefix came from the `log_super_admin_action` helper applying its category prefix logic uniformly without distinguishing lifecycle events from action events.
+
+**Fix**: `log_super_admin_action` now skips the category prefix when `p_action_type` is one of:
+- `impersonation_started`
+- `impersonation_ended`
+- `impersonation_denied_action`
+
+```sql
+IF p_action_type IN ('impersonation_started', 'impersonation_ended', 'impersonation_denied_action') THEN
+  v_mode_to_log := p_mode;
+ELSE
+  v_mode_to_log := COALESCE(p_category || ':' || p_mode || ':' || p_mode, p_mode);
+END IF;
+```
+
+Lifecycle rows now write clean `mode` values ('observe', 'act') matching the `started_at` row, enabling proper grouping in audit reporting.
+
+**Backfill of one historical row blocked by SOC 2**: The audit log table is append-only by design (no UPDATE policy at the user-facing layer; modification at the DB level requires direct admin access which is itself a documented privileged operation). One historical row from Session 52 testing has the old double-prefix value (`impersonation:observe:observe`). Documented as cosmetic build queue item BUG-S53-3, acceptable historical artifact.
+
+### 26.10 search_impersonation_targets paginated multi-field search
+
+**Final form locked Session 53**:
+
+- Default-loads all users when query is empty or < 2 characters
+- Multi-field search across email, full_name, organization_name (LEFT JOIN to organizations)
+- Three-tier ordering: prefix matches first, then substring matches, then alphabetical email
+- COALESCE account_type to 'unknown' (handles 2 production users with NULL account_type)
+- Window-function `total_count` for pagination
+- p_limit clamped to LEAST(GREATEST(p_limit, 1), 100), default 25
+- p_offset clamped to GREATEST(p_offset, 0)
+- INCLUDES self — no `u.id <> v_caller` filter; UX layer prevents self-impersonation via disabled menu item with "(cannot impersonate yourself)" hint
+
+The decision to include self at the data layer (rather than filter it out) was made Session 53: future per-row actions on the User Management page (Reset MFA, Trigger password reset, View access history) may need to operate on the caller's own row. Backend filtering is the wrong layer for a UX rule. Frontend's per-action gates decide whether each action is permitted on self.
+
+### 26.11 my_access_history defaults action_category for company_admin source rows
+
+**Problem surfaced mid-Session 53**: `AccessHistory.tsx` called `formatActionType(row.action_category)` which invokes `.replace(/_/g, ' ')` on the value. For rows sourced from `company_admin_audit_log`, the RPC's UNION ALL branch returned `NULL::text AS action_category` (since `company_admin_audit_log` has no category column). The frontend crashed with TypeError on `null.replace`.
+
+**Fix**: RPC now returns `'organization_admin_action'::text` instead of NULL for company_admin source rows. The string is descriptive enough as a fallback for users viewing their access history; matches the existing `super_admin_action_types.category` taxonomy convention.
+
+```sql
+SELECT
+  'company_admin'::text                     AS audit_source,
+  cal.id                                    AS event_id,
+  cal.action_type,
+  'organization_admin_action'::text         AS action_category,  -- was NULL
+  ...
+FROM public.company_admin_audit_log cal
+WHERE cal.target_user_id = v_uid
+```
+
+Backend defense; frontend null-guard logged as build queue item BUG-S53-1 for defense-in-depth.
+
+### 26.12 identityMutation.ts helper for friendly Edge Function error toasts
+
+**Problem surfaced during T-B testing**: `supabase.functions.invoke('identity-mutation', ...)` returns null `data` and a `FunctionsHttpError` on non-2xx responses. The error's `.message` is the generic "Edge Function returned a non-2xx status code" — the actual structured payload (`{ error, code: 'IMPERSONATION_DENIED', imp_session_id }`) is in `error.context` and must be retrieved via `await error.context.json()`. Frontend wasn't doing that, so users saw an opaque error toast that looked like a real Edge Function bug instead of the intended IMPERSONATION_DENIED protection.
+
+**Fix**: New `src/lib/identityMutation.ts` helper centralizes the parse-then-error pattern.
+
+```typescript
+export async function callIdentityMutation<T = any>(
+  body: IdentityMutationAction,
+): Promise<IdentityMutationResult<T>> {
+  const { data, error } = await supabase.functions.invoke("identity-mutation", { body });
+  if (!error && data && !data.error) return { ok: true, data: data as T };
+  if (error) {
+    try {
+      const ctx = (error as any).context;
+      if (ctx && typeof ctx.json === "function") {
+        const body = await ctx.json();
+        const code = body?.code as string | undefined;
+        const friendly = code === "IMPERSONATION_DENIED"
+          ? "This action is blocked while impersonating. Identity changes (email, password, MFA) are not permitted during impersonation, even in act mode."
+          : (body?.error as string) || error.message;
+        return { ok: false, error: friendly, code };
+      }
+    } catch { /* fall through */ }
+    return { ok: false, error: error.message };
+  }
+  if (data?.error) {
+    const code = data.code as string | undefined;
+    const friendly = code === "IMPERSONATION_DENIED" ? IMPERSONATION_DENIED_MESSAGE : data.error;
+    return { ok: false, error: friendly, code };
+  }
+  return { ok: false, error: "Unknown error" };
+}
+```
+
+Five callsites refactored to use the helper:
+- Settings.tsx: saveEmail (line 371), startEnroll (line 65), cancelEnroll (line 79), unenroll (line 128)
+- ResetPassword.tsx: password update call
+- MfaEnrollment.tsx: handleEnroll call
+
+**Pattern note**: any future Edge Function that returns structured error codes should adopt the same helper-with-error-body-parse pattern. The Supabase SDK's behavior of hiding non-2xx body content behind `error.context.json()` is non-obvious and the helper hides that ergonomically.
 
