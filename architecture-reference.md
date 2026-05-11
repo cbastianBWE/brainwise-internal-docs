@@ -1,5 +1,11 @@
 # BrainWise System Architecture Reference
 
+*v55 - Session 56 IN-PROGRESS (§33 and §34 added: standing patterns from Prompts 3.1-3.4 cycle. §33 covers PostgREST FK-disambiguation in embedded selects — when a child table has multiple FKs to the same parent, embedded selects MUST use `!<column_name>` syntax or return silently-null rows. Discovered Session 56 in AttachedCurriculaSection; one-line fix in Prompt 3.3. Standing recon protocol added for Prompts 4+: enumerate FKs on every join table before writing embeds. §34 covers content authoring tree's "All <type>" sections — Prompt 3.4 renamed Standalone → All, removed attachment-status filters, added selection-ancestor auto-expand via reverse-lookup Maps for cu and mo nodes. Same curriculum now appears in both hierarchical and flat sections, selection state shared via nodeKey. Forward-compat notes for Prompts 4-5 included.)*
+
+*v54 - Session 56 IN-PROGRESS (§32 added: soft-archive slug uniqueness fix. Migration slug_unique_only_among_active_for_authoring_tables shipped: dropped global *_slug_key UNIQUE constraints on certification_paths/curricula/modules, replaced with partial unique indexes (slug) WHERE archived_at IS NULL. Matches existing lesson_blocks_active_order_uniq pattern. Discovered when Cole archived PTP-Coach and tried to recreate — 23505 toast incorrectly suggested active-slug collision. Now archived rows release their slug for reuse; active-active collisions still rejected. Established as standing pattern for any future authoring table with slug + archived_at.)*
+
+*v53 - Session 56 IN-PROGRESS (Step 1 SHIPPED: AI authoring Edge Functions deployed. draft-lesson-block v1, scaffold-lesson v1, draft-text v1 all ACTIVE. Canonical `_shared/impersonation_gate.ts` source extracted from production via `get_edge_function` on set-account-type v43. Deploy followed §23.7's "Custom (set-account-type)" `entrypoint_path` pattern: `<function-name>/index.ts` plus `_shared/<file>.ts` in the files array. §29.5 updated from "pending Session 56" to SHIPPED state with full deploy parameters, audit pattern, and deferred-verification list. Live super-admin happy-path and impersonation-denied path verification deferred to Lovable Prompt 5 frontend integration.)*
+
 *v52 - Session 55 CLOSE (Phase 4 backend prep COMPLETE + Lovable Prompt 1 landed + invite-coach hardening FULLY shipped: backend + frontend. Backend: 8 prep migrations (notifications/CHECKs/lesson_blocks/CRUD/AI infra) + 1 hardening migration (coach_invitations email tracking columns: email_send_status/email_send_error/email_last_attempt_at); 10 authoring CRUD RPCs deployed; AI authoring infrastructure with 5 voice presets and 5 context blocks. Edge Functions: invite-coach redeployed v10→v11 with resend-aware logic (detects existing pending row and resends instead of refusing), email_type/source passed to send-email (was 'unknown'), hard email-send failure surfacing, email status persisted to row. End-to-end Resend button verified via test row. Cheryl's invitation flow verified separately. Frontend: Content Authoring shell live in production; Coach Management hardening Lovable prompt landed and verified (584 lines, up from 495) — 4 call sites use new inspectInviteCoachResponse helper, Email Status column with Sent/Failed/Pending badges, Retry Email button with destructive styling on failed rows. AI Edge Functions (3) drafted locally but not deployed pending canonical _shared/impersonation_gate.ts source confirmation in Session 56. New standing protocol locked: every Lovable prompt now requires backend + frontend + branding recon (3 passes). See architecture-reference §28-§31 for full Session 55 detail.)*
 
 *v51 - Session 55 CLOSE (initial close marker — superseded by v52 above after invite-coach hardening late-session).
@@ -2224,19 +2230,46 @@ Option I shipped: `ai_authoring_context` table holds versioned ~500-word blocks 
 
 Option II (RAG against books, podcast transcripts, papers, shipped content) deferred to Phase 4.5 as a separate workstream. Both options use the same injection point in the Edge Function code — switching is additive, not breaking.
 
-### 29.5 AI Edge Functions — pending Session 56
+### 29.5 AI Edge Functions — SHIPPED Session 56
 
-Three Edge Functions designed, full TypeScript source drafted at Session 55 close (preserved in Session 55 → 56 handoff artifact `ai-edge-functions-session-55-drafts.md`), NOT YET DEPLOYED:
+Three Edge Functions deployed v1 ACTIVE Session 56 against the source bodies preserved in the Session 55 → 56 handoff artifact `ai-edge-functions-session-55-drafts.md`:
 
-- `draft-lesson-block` (342 lines) — generates a single block matching the requested block_type's config schema; uses voice preset; calls `claude-opus-4-7`
-- `scaffold-lesson` (358 lines) — generates full lesson_blocks array; mixed block types; sticky voice from frontend
-- `draft-text` (312 lines) — generic text field drafts (descriptions, titles); supports refinement mode
+- `draft-lesson-block` v1 — generates a single block matching the requested `block_type`'s config schema; supports 17 v1 block types via internal `BLOCK_SCHEMAS` dispatch; calls `claude-opus-4-7`; `MAX_OUTPUT_TOKENS = 3000`
+- `scaffold-lesson` v1 — generates a full ordered lesson_blocks array (mixed block types); calls `claude-opus-4-7`; `MAX_OUTPUT_TOKENS = 8000`; validates every returned block has `{block_type, config}` shape and `block_type` is in the allowed set
+- `draft-text` v1 — generic short-prose drafts for description / title / overview fields; supports refinement mode (passes `current_value`); 7 supported `target_field` keys via `FIELD_SPECS` dispatch; calls `claude-opus-4-7`; `MAX_OUTPUT_TOKENS = 1500`
 
-All three share identical auth/gate/context-fetch/voice-resolution/Anthropic-call/audit-log scaffolding. Differences: output shape (single object vs array vs plain text), schema validation depth, output token budget (3k / 8k / 1.5k respectively).
+All three share identical auth/gate/context-fetch/voice-resolution/Anthropic-call/audit-log scaffolding:
 
-Blocker: canonical `_shared/impersonation_gate.ts` module source not on hand. §22.1 documents the contract (exports, types) but not the implementation body. Two options for Session 56: (A) Cole pastes the gate module source from his local Supabase functions directory, or (B) Cole runs `supabase functions download _shared` from CLI and pastes the result. Without verified source, Edge Function deploys would either bundle a reconstructed-from-docs module (risk: subtle behavior drift on the impersonation gate, defeating Standing Rule 2) or fail to import.
+- `verify_jwt: false` at the deploy layer; JWT verified manually inside the function via `callerClient.auth.getClaims()` (canonical Class A pattern per arch-ref §10.7)
+- Super admin gate: `account_type !== "brainwise_super_admin"` returns 403 `super_admin_required`
+- Impersonation gate: `enforceImpersonationGate(callerClient, "permission_change")` from `_shared/impersonation_gate.ts`. Both observe and act mode blocked because `permission_change` is denylisted globally. Returns 403 `IMPERSONATION_DENIED`.
+- Context: `ai_authoring_context` rows fetched via service-role client and concatenated in canonical order (`platform_overview` → `framework_terminology` → `scientific_foundations` → `output_format_rules` → `guardrails`) for system prompt injection
+- Voice: `voice_preset_key` resolved from `ai_authoring_voice_presets` (`is_active = true`), or `'custom'` falls through to `custom_voice_guidance` + `custom_voice_example` in request body
+- Anthropic call: `https://api.anthropic.com/v1/messages` with `anthropic-version: 2023-06-01`, system + single user message
+- Output cleaning: code-fence stripping (` ```json ... ``` `) before `JSON.parse`; `draft-text` also strips wrapping quotes including curly quotes
+- Audit log: every successful draft writes a `log_super_admin_action` row with `action_type = 'ai_authoring_draft_generated'`; `p_after` carries function name + block_type/target_field/scaffold metadata + voice_preset_key + prompt excerpt + model
+- Sanitized error envelope: stable string codes (`missing_bearer_token`, `invalid_jwt`, `super_admin_required`, `IMPERSONATION_DENIED`, `invalid_json_body`, `author_prompt_required`, `author_prompt_too_long`, `unknown_block_type`, `unknown_target_field`, `unknown_voice_preset`, `context_fetch_failed`, `anthropic_api_key_missing`, `anthropic_api_failure`, `ai_output_unparseable`, `ai_output_not_array`, `ai_output_empty_array`, `ai_output_empty`, `internal_error`)
 
-Full source bodies are in the Session 55 handoff artifact — not re-derivable from this section alone.
+Differences across the three: output shape (single object vs array vs plain text), per-function schema validation depth, output token budget. No other behavioral divergence.
+
+**Deploy parameters used** (canonical pattern for future shared-import functions, see §23.7):
+
+- `entrypoint_path: "<function-name>/index.ts"` (NOT naked `"index.ts"`) — the subdirectory prefix is required so `../_shared/...` traversal resolves correctly under the bundle's `source/` root
+- `files`: array containing the function source at `<function-name>/index.ts` AND `_shared/impersonation_gate.ts` (verbatim from production `set-account-type` v43)
+- `verify_jwt: false`
+
+**Verification performed Session 56**:
+
+- Anonymous probe (no Authorization header): all three return HTTP 401 `missing_bearer_token` ✓
+- Source diff against canonical drafts in `ai-edge-functions-session-55-drafts.md`: structural landmarks match (ANTHROPIC_MODEL, MAX_OUTPUT_TOKENS, BLOCK_SCHEMAS/ALLOWED_BLOCK_TYPES/FIELD_SPECS dispatch tables, super_admin gate string, impersonation gate category, missing_bearer_token error code) ✓
+- Bundle integrity: `get_edge_function` confirms each function's deploy package includes `_shared/impersonation_gate.ts` alongside `<function-name>/index.ts` ✓
+- Prerequisite data: 5 active `ai_authoring_context` rows, 5 active `ai_authoring_voice_presets` rows, `ai_authoring_draft_generated` action_type seeded, 2 brainwise_super_admin users available for live testing ✓
+
+**Deferred verification** (requires live super-admin session token, lands when AI buttons land in Lovable Prompt 5):
+
+- Super-admin authenticated, valid payload → 200 with parsed AI output and audit row written
+- Super-admin authenticated during impersonation → 403 `IMPERSONATION_DENIED`
+- Non-super-admin authenticated → 403 `super_admin_required`
 
 ## 30. Branding recon — standing protocol (Session 55)
 
@@ -2377,3 +2410,104 @@ Prompt drafted Session 55, ready to land in Session 56.
 3. **LOW**: Delete the throwaway `diag-env-check` Edge Function (id `c57588a3-910f-4ee8-8102-4e33d8829229`) from Supabase Dashboard. MCP has no delete-function method.
 4. **LOW**: invite-coach v11 retains the v10 manual super_admin check via service-role client + auth.getUser. Migrate to canonical `auth.getClaims` pattern + assert_super_admin RPC when the impersonation gate is added.
 
+
+## 32. Soft-archive slug uniqueness (Session 56)
+
+### Problem
+
+The three authoring-content tables with slugs (`certification_paths`, `curricula`, `modules`) all use soft-archive (`archived_at` timestamp). They originally enforced slug uniqueness with global UNIQUE constraints (`*_slug_key`). Result: archiving a row left its slug occupying the constraint forever, blocking the author from recreating the same slug on a fresh row.
+
+Discovered Session 56 when Cole archived the PTP-Coach cert path and tried to recreate it, hitting a 23505 toast that incorrectly suggested the slug was in use by an active row.
+
+### Fix shipped Session 56
+
+Migration `slug_unique_only_among_active_for_authoring_tables`:
+
+```sql
+ALTER TABLE public.certification_paths DROP CONSTRAINT certification_paths_slug_key;
+CREATE UNIQUE INDEX certification_paths_slug_active_uniq
+  ON public.certification_paths (slug) WHERE archived_at IS NULL;
+
+ALTER TABLE public.curricula DROP CONSTRAINT curricula_slug_key;
+CREATE UNIQUE INDEX curricula_slug_active_uniq
+  ON public.curricula (slug) WHERE archived_at IS NULL;
+
+ALTER TABLE public.modules DROP CONSTRAINT modules_slug_key;
+CREATE UNIQUE INDEX modules_slug_active_uniq
+  ON public.modules (slug) WHERE archived_at IS NULL;
+```
+
+Matches existing precedent in `lesson_blocks_active_order_uniq`. `content_items` doesn't have a slug column so no change there.
+
+### Semantics after the fix
+
+- Two ACTIVE rows with same slug → still rejected with 23505 (correct)
+- Archived row + new active row with same slug → coexist (the desired behavior)
+- 23505 error code unchanged — frontend `mapRpcError` still maps to "Slug already in use" for the active-active collision case which is the only case where 23505 now fires
+- Archived rows retain their original slug verbatim, no rename/suffix needed — keeps audit log readable
+
+### Standing pattern for future authoring tables
+
+Any new authoring-content table with `slug` + `archived_at` should use the partial-index pattern, never a global UNIQUE constraint. Established as the convention Session 56.
+
+## 33. PostgREST FK-disambiguation in embedded selects (Session 56)
+
+### Problem
+
+When a child table has two or more foreign keys pointing to the same parent table, PostgREST's implicit embed cannot disambiguate which FK to traverse. The result is silently null embeds and dropped rows downstream.
+
+Discovered Session 56 in `AttachedCurriculaSection`. `certification_path_curricula` has two FKs to `curricula`:
+- `curriculum_id` → `curricula(id)` (the actual attachment)
+- `prerequisite_curriculum_id` → `curricula(id)` (the prerequisite chain)
+
+The query `select("id, display_order, is_required, curriculum:curricula(...)")` returned rows where `curriculum` was null. The downstream `.filter(r => r.curriculum && !r.curriculum.archived_at)` dropped everything, producing a false "No curricula attached yet" empty state even though the join row existed in the database.
+
+### Standing fix pattern
+
+Any embedded select traversing a child→parent relationship where the child table has multiple FKs to that parent MUST use explicit FK-column-name disambiguation:
+
+```ts
+.select("id, ..., curriculum:curricula!curriculum_id(id, name, ...)")
+```
+
+The `!curriculum_id` shorthand tells PostgREST: use the FK whose source column is `curriculum_id`. More robust than the constraint-name form (`!certification_path_curricula_curriculum_id_fkey`) because it survives FK constraint renames.
+
+### Standing recon protocol for Prompts 4+
+
+When writing any new join-table embed, the recon checklist now includes:
+
+```sql
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'public.<join_table>'::regclass
+  AND contype = 'f'
+  AND confrelid = 'public.<parent_table>'::regclass;
+```
+
+If more than one row returns, the embed MUST use `!<column_name>` disambiguation. If exactly one row, the implicit embed is safe but the explicit form is still preferred for grep-ability and future-proofing.
+
+Same applies to:
+- `curriculum_modules` once added (likely will have a `curriculum_id` + `prerequisite_curriculum_id` mirror pattern)
+- Any future join table linking content items, lesson blocks, etc., that supports prerequisite or sequence relationships
+
+## 34. Content authoring tree: "All" sections include attached items (Session 56)
+
+### Pattern locked
+
+The left-tree navigator in `/super-admin/content-authoring` uses three sections: "Certification Paths" (hierarchical), "All Curricula" (flat list of every non-archived curriculum), "All Modules" (flat list of every non-archived module).
+
+Previously named "Standalone Curricula" / "Standalone Modules" with `!linkedCurriculumIds.has(c.id)` / `!linkedModuleIds.has(m.id)` filters that excluded attached items. Renamed and unfiltered Session 56 via Prompt 3.4 — the same curriculum now appears both nested under its cert path AND in the flat "All Curricula" list. Selection state shares `nodeKey` (`cu:<id>`), so clicking either highlights both.
+
+### Selection ancestor auto-expand
+
+When `selectedKey` changes to a `cu:<uuid>` node, `selectNode` looks up the curriculum's parent cert paths via the `certPathsByCurriculum` Map (built from `cpcLinks`) and adds `cp:<parent-id>` to the `expanded` Set. Same for `mo:<uuid>` selections: looks up parent curricula via `curriculaByModule`, expands those, AND chains to expand each parent curriculum's parent cert paths.
+
+This ensures clicking an item from anywhere in the tree (attached row's pencil button, "All Curricula" flat list, deep-link URL) surfaces its hierarchical context in the "Certification Paths" section.
+
+Selection only ADDS to `expanded`; manual collapse via chevron remains a separate user concern. Auto-expand is harmless when ancestors are already expanded.
+
+### Forward-compat for Prompts 4+
+
+When Module editor lands (Prompt 4), the existing tree logic already shows all modules in "All Modules" regardless of attachment status. Module-curriculum attachment writes will need to invalidate analogous AttachedModulesSection caches (when that section is built), and `cm_links` reverse-lookup is already built into the parent component's `curriculaByModule` Map.
+
+When Content Item editor lands (Prompt 5), content items don't appear in the tree top-level sections (they're always under their parent module). So no "All Content Items" section. Tree depth caps at 4 levels: cp → cu → mo → ci.

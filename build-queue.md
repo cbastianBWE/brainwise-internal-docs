@@ -1,5 +1,17 @@
 # BrainWise Build Queue
 
+*v59 - Session 56 IN-PROGRESS (Prompts 3.1, 3.2, 3.3, 3.4 SHIPPED — full Prompt 3 UX bug-fix cycle complete. ContentAuthoring.tsx ~1897 → ~2000 lines. (3.1) Auto-expand parent cert path after attach/create + await refetch. (3.2) Invalidate AttachedCurriculaSection cache after writes via queryClient.invalidateQueries threaded through new onInvalidateAttachedList prop. (3.3) Fix PostgREST FK-ambiguity: certification_path_curricula has two FKs to curricula (curriculum_id + prerequisite_curriculum_id) so implicit embed was returning null curricula; one-line fix to !curriculum_id syntax. This was the actual blocker for "attached curricula not displaying" — 3.1/3.2 were correct but didn't address the failing query. (3.4) Tree section rename "Standalone" → "All" with attached items included; pencil icon on AttachedCurriculaSection rows for inline edit navigation; selectNode rewritten to auto-expand ancestor chain when selecting cu: or mo: nodes via new reverse-lookup Maps. Two patterns locked Session 56 for Prompts 4-8: (a) key prop on all editor JSX usages forces remount on selection swap, (b) PostgREST FK-disambiguation required on all join-table embeds — add to recon checklist. End-of-session DB state: 1 active cert path (PTP-Coach), 1 active curriculum (PTP VILT 1), 1 attachment row. Modules/content_items still 0 — Prompt 4+ scope.)*
+
+*v58 - Session 56 IN-PROGRESS (Prompt 3 SHIPPED + slug-uniqueness migration shipped. Prompt 3 verified end-to-end against all 20 acceptance criteria. ContentAuthoring.tsx 1130 → 1897 lines. CurriculumEditor sub-component, sentinel parsing for cu:new/cu:new:<cp-id>/cu:<uuid>, "Add curriculum to this path" Dialog fully wired (Pull-existing with author-configurable display_order/is_required defaults + search + Attach buttons; Create-new tab opens new-curriculum editor with attachment pre-bound), key props on all four editor JSX usages fix the useState-stale-on-mount bug. Cole then surfaced bug: archiving PTP-Coach cert path then trying to recreate with same slug returned 23505. Root cause: global UNIQUE on slug covered archived rows. Fix shipped Session 56 via migration slug_unique_only_among_active_for_authoring_tables: dropped *_slug_key UNIQUE constraints on certification_paths/curricula/modules, replaced with partial unique indexes (slug) WHERE archived_at IS NULL. Matches existing lesson_blocks_active_order_uniq pattern. Verified: archive-recreate now works; active-active collision still rejected with 23505. RPCs and frontend unchanged.)*
+
+*v57 - Session 56 IN-PROGRESS (Prompt 3 — Curriculum editor — drafted and ready to send. Recon complete: curricula table 13 cols, upsert_curriculum 13-param RPC handles curriculum + optional attachment in one txn, archive_curriculum mirrors archive_certification_path. New sentinel pattern: cu:new (standalone), cu:new:<cert-path-id> (attached), cu:<uuid> (edit). audience_tags rendered as comma-separated text input (no chip primitive in codebase; premature to build). CertPathEditor gets four new props: allCurricula, attachedCurriculumIds, onRequestCreateAttachedCurriculum, onRefetch. "Add curriculum to this path" Dialog tabs both made functional. Attach-existing flow uses re-send-existing-values pattern through upsert_curriculum (cleaner attach_curriculum_to_cert_path RPC logged at build-queue line ~989 for Prompt 4-5 territory). Attach-existing tab gets author-configurable display_order + is_required defaults, with display_order seeded to attachedCurriculumIds.size (next available position) — fixes "everything attaches at position 0" collision bug. useState-stale-on-mount fix folded in via key prop on all four editor JSX usages (cp:new, cp:<id>, cu:new, cu:<id>) — establishes standing pattern for Prompts 4-8. 20 acceptance criteria. Sent next.)*
+
+*v56 - Session 56 IN-PROGRESS (Step 1 SHIPPED + Step 2 SHIPPED. Step 2: Cert Path editor Lovable Prompt 2 sent and verified end-to-end against 15 acceptance criteria. ContentAuthoring.tsx 473 → 1130 lines. All structural landmarks correct: CERT_INSTRUMENTS/CERTIFICATION_TYPES/DELIVERY_MODES constants, slugify helper, AttachedCurriculaSection sub-component, CertPathEditor sub-component, breadcrumb + right-pane branch on selectedKey === "cp:new". Tested with first real cert path PTP-Coach (id 562a0536-...). Three retrospective items logged: (1) useState-stale-on-mount fix for CertPathEditor — fold key={initial?.id ?? "new"} into Prompt 3; (2) voice dictation + file upload as AI authoring input modalities (Phase 4.5d, 2 sessions, Web Speech API + Anthropic vision for images); (3) extend voice + file upload to /ai-chat, /my-results bubble, /shared-results bubble (Phase 4.5e, 2 sessions, requires ai-chat Edge Function extension + privacy policy update for file content disclosure). Phase 4.5 sequencing extended: 4.5a image → 4.5d authoring inputs → 4.5b voiceover → 4.5c video → 4.5e end-user AI inputs. Build queue Session 56 retrospective section captures all three. Step 1 (3 AI Edge Functions) still ACTIVE v1. See architecture-reference.md §29.5.)*
+
+*v55 - Session 56 IN-PROGRESS (Step 1 SHIPPED + Step 2 recon COMPLETE + Phase 4.5 AI media scope added. Step 1: three AI authoring Edge Functions deployed v1 ACTIVE — draft-lesson-block, scaffold-lesson, draft-text. Step 2 recon: Cert Path editor Lovable Prompt 2 written and ready to send to Cole — backend RPCs verified, frontend seam at ContentAuthoring.tsx lines 449-466 identified, branding tokens locked (shadcn HSL, not marketing tokens), multi-select pattern adopted from CompanyDetail.tsx Checkbox grid, 4 instruments PTP/NAI/AIRSA/HSS only (INST-002L EPN excluded). Phase 4.5 AI media generation scope locked Session 56: Imagen 4 for image generation (Flux 2 Pro backup), ElevenLabs for voiceover, Synthesia for avatar video (Colossyan alt). Each is a separate Phase 4.5 sub-phase post-Prompt-6. ai_authoring_drafts capture table EXPLICITLY DEFERRED — current audit log row is sufficient at N=1 author; trigger to revisit is second author OR prompt-quality tuning needs. Frontend should keep last 3-5 AI outputs in local React state in Prompt 6 for in-session undo. See architecture-reference.md §29.5 for Edge Function deploy detail; build-queue Phase 4.5 section for media-generation scope.)*
+
+*v54 - Session 56 IN-PROGRESS (Step 1 SHIPPED: three AI authoring Edge Functions deployed v1 ACTIVE — draft-lesson-block, scaffold-lesson, draft-text. Canonical `_shared/impersonation_gate.ts` extracted verbatim from production `set-account-type` v43 via `get_edge_function`. All three deploys curl-probed clean HTTP 401 anonymous; no module-bundling failures. Deploy followed §23.7's "Custom (set-account-type)" `entrypoint_path` pattern verbatim. End-to-end happy-path (super-admin → 200 with parsed AI output) and impersonation-denied path (403 IMPERSONATION_DENIED) deferred to first frontend integration in Lovable Prompt 5. Next: Lovable Prompt 2 — Cert Path editor — requires full 3-pass recon. See architecture-reference.md §29.5 for Session 56 deploy detail.)*
+
 *v53 - Session 55 CLOSE (Phase 4 backend prep COMPLETE + Lovable Prompt 1 landed + invite-coach hardening FULLY shipped (backend + frontend) late-session. Backend additions: coach_invitations email tracking migration (email_send_status, email_send_error, email_last_attempt_at columns); invite-coach redeployed v10→v11 (resend-aware logic, proper email_type/source labeling, hard email-send failure surfacing, email status persistence). Resend button bug diagnosed and fixed end-to-end via test row. Cheryl's invitation flow verified separately. Frontend: Coach Management hardening Lovable prompt landed and verified — CoachManagement.tsx 495 → 584 lines, 4 invite-coach call sites use new inspectInviteCoachResponse helper, Email Status column with Sent/Failed/Pending badges, Retry Email button on failed rows. AI Edge Functions (3) drafted locally with full source bodies in handoff artifact but not deployed pending canonical _shared/impersonation_gate.ts source. Next session: (1) AI Edge Function deployment; (2) Lovable Prompt 2 — Cert Path editor. New build queue items added: audit all Edge Function callers for same data.results[] inspection bug pattern; add impersonation gate to invite-coach (Tier 2 backlog); delete diag-env-check throwaway function. See architecture-reference.md §28-§31 for full Session 55 detail.)*
 
 *v52 - Session 55 CLOSE (initial close marker — superseded by v53 above after invite-coach hardening late-session).
@@ -913,7 +925,194 @@ Class A primary for frontend Regenerate AI button (forwards user JWT to RPC clie
 
 Growth ranking: `ORDER BY cps_growth DESC NULLS LAST, blind_spot_pct DESC NULLS LAST` (matches Session 41 design). Strength ranking: `ORDER BY cps_strength DESC NULLS LAST, n DESC` (more reliable signal preferred). Locked in RPC body, not configurable from caller.
 
-## Carried items from prior sessions (unchanged)
+## Session 56 — Lovable Prompts 2, 3, 3.1, 3.2, 3.3, 3.4 retrospectives (post-send)
+
+Prompt 2 (Cert Path editor) and Prompt 3 (Curriculum editor) shipped and work end-to-end. Four post-Prompt-3 follow-up prompts (3.1-3.4) plus a slug-uniqueness migration shipped and verified Session 56. Final ContentAuthoring.tsx line count ~2000.
+
+### [SHIPPED Session 56] Prompts 3.1, 3.2, 3.3, 3.4 — Prompt 3 UX bug-fix cycle
+
+Four small targeted Lovable prompts after Prompt 3 shipped, all on `src/pages/super-admin/ContentAuthoring.tsx`:
+
+**Prompt 3.1 — Auto-expand parent cert path after curriculum attach/create.** CurriculumEditor `onSaved` callback was ignoring its second arg `attachedCertPathId`. Fixed by accepting it, adding `cp:<id>` to expanded set, and `await`ing refetch before swapping `selectedKey`. Also added `onExpandSelf` prop on CertPathEditor for the pull-existing flow's analogous auto-expand. ~16 line delta.
+
+**Prompt 3.2 — Invalidate AttachedCurriculaSection cache after writes.** AttachedCurriculaSection had its own React Query key `["cert-path-attached-curricula", certPathId]` with staleTime 15s, never invalidated by writes. Added `useQueryClient` import, threaded `onInvalidateAttachedList` prop through CertPathEditor, called `queryClient.invalidateQueries` after both write paths (create-with-attachment + pull-existing-and-attach). ~20 line delta.
+
+**Prompt 3.3 — Fix FK-ambiguity in PostgREST embed (the actual bug).** Root cause of "attached curriculum not displaying" was NOT cache invalidation — Prompts 3.1 and 3.2 were correct but didn't address the failing query. `certification_path_curricula` has TWO FKs to `curricula` (`curriculum_id` and `prerequisite_curriculum_id`). The embed `curriculum:curricula(...)` was ambiguous; PostgREST silently returned null curricula. The `.filter(r => r.curriculum && !r.curriculum.archived_at)` then dropped all rows. Fix: one-line change to `curriculum:curricula!curriculum_id(...)` for explicit FK disambiguation. ~1 line delta.
+
+**Prompt 3.4 — Tree section rename + attached row pencil edit + auto-expand-ancestors on selection.** Three coupled changes: (1) renamed "Standalone Curricula" → "All Curricula" and "Standalone Modules" → "All Modules", removed the `!linkedCurriculumIds.has(c.id)` filters so all non-archived items show in their section regardless of attachment status. (2) Added pencil button (lucide `Pencil` icon) to each AttachedCurriculaSection row that navigates the right pane to that curriculum's editor via new `onSelectCurriculum` callback. (3) Rewrote `selectNode` to auto-expand the ancestor chain when selecting a `cu:` or `mo:` node — looks up parents via new `certPathsByCurriculum` and `curriculaByModule` reverse-lookup Maps and adds them to the `expanded` set. Same curriculum/module now appears in both "Certification Paths" (nested) and "All <type>" (top-level) — selection highlights both because they share `nodeKey`. ~80 line delta.
+
+### [SHIPPED Session 56] Standing patterns established for Prompts 4-8
+
+Two patterns locked Session 56 to apply to all subsequent editor sub-components (Module, Content Item, Quiz, Mentor, etc.):
+
+1. **Key prop on all editor JSX usages** (`cp:new`, `cp:${id}`, `cu:new`, `cu:${id}`, future `mo:new`, `mo:${id}`, etc.) — forces React remount on selection swap so useState initializers re-run with correct `initial` values. Eliminates the useState-stale-on-mount bug for direct URL navigation, hard reloads, and rapid selection swaps.
+
+2. **PostgREST FK-disambiguation** — any embedded select traversing a table with multiple FKs to the same target table MUST use `!<column_name>` syntax. The bug shipped silently in Prompt 2 (AttachedCurriculaSection) and wasn't visible until Cole tried to use the feature. Add to recon checklist for Prompts 4+: enumerate FKs on every join table before writing embeds.
+
+3. **Tree "All <type>" sections include attached items** — going forward, when Prompts 4+ add Module editor with curriculum-attachment flows, the "All Modules" section already lists every non-archived module (attached or not). No additional tree logic needed.
+
+### [SHIPPED Session 56] Slug uniqueness should not block archive-recreate
+
+Bug: archiving a cert path (or curriculum or module) left its slug occupying the global `*_slug_key` UNIQUE constraint, so trying to recreate the same slug returned 23505 "Slug already in use" even though no active row used it.
+
+Fix shipped Session 56 via migration `slug_unique_only_among_active_for_authoring_tables`:
+- Dropped `certification_paths_slug_key`, `curricula_slug_key`, `modules_slug_key`
+- Replaced with partial unique indexes (`certification_paths_slug_active_uniq`, `curricula_slug_active_uniq`, `modules_slug_active_uniq`) on `(slug) WHERE archived_at IS NULL`
+- Matches existing pattern set by `lesson_blocks_active_order_uniq`
+
+Verified: archived rows + new active row with same slug now coexist; two active rows with same slug still rejected with 23505. RPCs and frontend unchanged. `mapRpcError` still maps 23505 to "Slug already in use" for the case where it actually fires now (two active rows colliding).
+
+content_items doesn't have a slug column, so no change there. When Prompt 4 (Module editor) lands the module side of this is already covered.
+
+### [SHIPPED Session 56 via Prompt 3 — superseded] CertPathEditor useState-stale-on-mount fix
+
+Folded into Prompt 3 via `key` props on all four editor JSX usages (`cp:new`, `cp:${id}`, `cu:new`, `cu:${id}`). Confirmed working end-to-end with no observed regressions. Now a standing pattern for Prompts 4-8.
+
+### [HIGH / new feature] Voice dictation + file upload for AI authoring prompts
+
+Cole asked for: voice dictation (mic button → speech-to-text) and file/image upload as input modalities for the AI authoring prompts. Goal: dictate a lesson concept instead of typing it, or upload an existing reference document and ask AI to draft a block from it.
+
+Build in Prompt 6 (lesson_blocks editor where AI buttons live) alongside the existing text prompt input. Architecture:
+
+**Voice dictation:**
+- Use the browser's native Web Speech API (`SpeechRecognition`) — free, no provider cost, real-time transcription
+- Frontend-only feature; no Edge Function or migration needed
+- Add a mic button next to each "Draft with AI" prompt input. Click → starts listening, transcribes to the textarea, click again to stop
+- Fallback if Web Speech API unsupported: hide the button, no degradation
+- Cross-browser: Chrome/Edge/Safari support; Firefox is iffy but the fallback handles it
+
+**File upload as AI context:**
+- Add an "Attach reference" affordance next to the prompt input
+- Supported types: PDF, DOCX, TXT, MD, plus PNG/JPG for image-based references
+- File parsed client-side or server-side, extracted text fed into the Edge Function as a new optional request param `reference_context` (string, max 50K chars to keep token budget sane)
+- Client-side parsing for TXT/MD (trivial). PDF/DOCX server-side via Edge Function that uses `pdfjs-dist` or `mammoth` — could be a new `extract-document-text` Edge Function. Images server-side via Claude's vision capability since `claude-opus-4-7` accepts image input — pass image bytes to Anthropic API, ask "transcribe and summarize this image's relevant content"
+- New Storage bucket `ai-authoring-references` for any uploaded files Cole wants persisted (vs. one-shot ephemeral parse-and-discard)
+- The three existing AI Edge Functions (`draft-lesson-block`, `scaffold-lesson`, `draft-text`) get a new optional `reference_context` request field appended to the user message in the Anthropic call: `Author request: <prompt>\n\nReference material (do not quote verbatim, use as context):\n<reference_context>`
+
+Estimated effort: 1 session for voice dictation + text/markdown file parsing (browser-only, no migrations). 1 additional session for PDF/DOCX/image parsing (new Edge Function + Storage bucket). Total: ~2 sessions, both in Phase 4.5d.
+
+### [HIGH / extend to other AI surfaces] Voice dictation + file upload across all AI features
+
+Same input-modality additions should land on the non-authoring AI surfaces too. Three places identified Session 56:
+
+1. **AI Chat page** (`/ai-chat` or similar; check actual route) — primary chat interface
+2. **AI Chat bubble on `/my-results`** — per-result conversational helper
+3. **AI Chat bubble on `/shared-results`** — peer-result conversational helper
+
+Each currently has a text-only input. Add:
+- Voice dictation button (Web Speech API, same pattern as Phase 4.5d)
+- File upload button — for these user-facing surfaces, scope is narrower: PDF/TXT/MD only (no DOCX needed for end-users), image upload to ask Claude vision questions about a chart/report screenshot
+
+Backend implication: `ai-chat` Edge Function (currently v31) needs a `reference_context` request param and a new `attached_image` param (base64 or URL) that gets forwarded to the Anthropic API call as a vision-input content block. Same shape as Phase 4.5d's authoring extension.
+
+Cost concern: end-users have AI quotas (`check-ai-usage`), so heavy attachment use could blow through monthly allowances faster. Quota policy decision needed: does an image-attached message count as 1 use or N uses based on token consumption? Defer to Phase 4.5e kickoff.
+
+Privacy implication: user-uploaded files containing PII go through Anthropic's API. Update privacy policy + ai_chat consent UI to disclose this before shipping. Existing consent text covers "AI conversation" but not "file content sent to AI."
+
+Estimated effort: ~2 sessions for the three surfaces collectively (one to wire all three frontend inputs, one to add the request params + privacy disclosure). Phase 4.5e.
+
+### Phase 4.5d and 4.5e sequencing
+
+Insert between 4.5c (avatar video) and original Phase 5 (consumer learning UI):
+- **4.5d** — Authoring AI input modalities (voice + file upload). 2 sessions.
+- **4.5e** — End-user AI chat input modalities (voice + file upload on /ai-chat, /my-results bubble, /shared-results bubble). 2 sessions.
+
+Both 4.5d and 4.5e are independent of 4.5a/b/c — they can be sequenced flexibly. Cole's call. Reasonable default: 4.5a (image) → 4.5d (authoring inputs, faster to build than voiceover/video) → 4.5b → 4.5c → 4.5e.
+
+---
+
+### [MEDIUM / Prompt 4-5 territory] Generic attach_*_to_* RPC family
+
+Prompt 3 attaches existing curricula to cert paths by re-sending the curriculum's full field set through `upsert_curriculum` (because the RPC validates name/slug as required). It works, but:
+- Each attach-existing action writes a `curriculum_updated` audit row with `before == after` for the curriculum portion. Phantom edit, harmless but noisy on audit log review.
+- Prompts 4 (modules → curricula) and 5 (content items → modules) will need the same attach-existing pattern. Each will inherit the same ugly re-send.
+
+When the second consumer of the pattern lands (Prompt 4 module-to-curriculum attachment), refactor to a generic family:
+- `attach_curriculum_to_cert_path(p_curriculum_id, p_cert_path_id, p_display_order, p_is_required, p_prerequisite_curriculum_id, p_reason)` — pure attach, no curriculum update
+- `attach_module_to_curriculum(...)` — same shape for modules
+- `attach_content_item_to_module(...)` — same shape for content items
+- Each writes exactly one audit row of action_type `*_attached`, no phantom curriculum/module/content_item edits
+
+The existing `upsert_curriculum`/`upsert_module`/`upsert_content_item` RPCs keep their attachment params for the create-with-attachment flow (one transaction, one RPC call) — they remain useful for that specific case. The new attach_* family is only for "attach an already-existing thing to a parent" flows.
+
+Trigger to build: when Prompt 4 introduces the second consumer of the re-send pattern. Estimated effort: ~1 session (3 new RPCs, audit action_types, frontend swap in two places).
+
+
+
+## Phase 4.5 — AI media generation (NEW Session 56, decided pre-Prompt 2 send)
+
+Three new AI-powered media generation features for the lesson_blocks editor (Phase 4.5, post-launch). Each is a separate Edge Function + frontend integration in the lesson_blocks editor. Provider decisions locked Session 56 based on current 2026 landscape research.
+
+Solo-author deferred decision: **`ai_authoring_drafts` capture table NOT being built.** The current `super_admin_audit_log` row (action_type `ai_authoring_draft_generated` with prompt excerpt + metadata) is sufficient for SOC 2 CC7.2. Trigger to revisit: (a) second author joins, OR (b) prompt-quality tuning needs structured data. Until then, frontend should keep the last 3-5 AI outputs in local React state per editor so author can "undo to last AI suggestion" within a session — note this in Prompt 6 acceptance criteria when lesson_blocks editor is built.
+
+### [MEDIUM / Phase 4.5a] AI image generation
+
+**Provider locked: Google Imagen 4 Standard (primary), Flux 2 Pro (backup).** Imagen 4 Standard at $0.04/image leads on photorealism in 2026; Flux 2 Pro at $0.045-0.055/image is the strongest commercial-license backup. Both via direct API (no aggregator needed at solo-author volume — projected $2-8/month cost).
+
+Build:
+- New Edge Function `generate-image-asset`:
+  - Class A JWT auth + super_admin gate + impersonation gate (`permission_change` category) — same pattern as the three Session 56 AI Edge Functions
+  - Accepts `prompt`, `aspect_ratio`, `style_preset` (optional), `provider` ("imagen-4" default | "flux-2-pro")
+  - Calls Imagen 4 via Google AI API (key in Edge Function Secrets as `GOOGLE_AI_API_KEY`), falls back to Flux via FAL or direct Black Forest Labs API on Imagen failure
+  - Receives bytes/URL, downloads, uploads to new Supabase Storage bucket `lesson-assets` (super-admin write, authenticated read), returns public URL + provenance metadata (`generated_by`, `generation_prompt`, `model`)
+  - Audit row via `log_super_admin_action` with action_type `ai_authoring_image_generated`
+- New Supabase Storage bucket `lesson-assets` with RLS policies
+- New `super_admin_action_types` row: `ai_authoring_image_generated`
+- Frontend integration in `image` block editor (lands in Prompt 6 alongside the lesson_blocks visual editor)
+- Acceptable use review: Google Imagen 4 terms permit commercial use including training/educational materials. Flux 2 Pro likewise. Document the provenance metadata stored alongside the image so SOC 2 auditors can trace AI-generated content if asked.
+
+Estimated effort: 1 session (Edge Function + Storage bucket + frontend wiring batched with Prompt 6).
+
+### [MEDIUM / Phase 4.5b] AI voiceover generation
+
+**Provider locked: ElevenLabs (primary).** Highest voice naturalness in 2026, mature commercial licensing, voice cloning available if Cole wants a consistent BrainWise narrator. Cost ~$0.06/1K characters at Flash tier = roughly $0.27 for a 5-min voiceover. Pro tier ($99/mo) recommended for commercial use clause.
+
+Build:
+- New Edge Function `generate-voiceover`:
+  - Class A JWT + super_admin gate + impersonation gate (`permission_change` category)
+  - Accepts `text`, `voice_id`, `model` (default "eleven_multilingual_v2" for long-form, "eleven_flash_v2_5" for short snippets), `stability` and `similarity_boost` for voice tuning
+  - Calls ElevenLabs TTS API (key in Edge Function Secrets as `ELEVENLABS_API_KEY`), receives MP3 stream
+  - Uploads MP3 to `lesson-assets` Storage bucket, returns public URL + provenance metadata
+  - Optional: optionally generate matching transcript via Claude (reuse `draft-text` pattern) for the `embed_audio` block's `transcript_markdown` field — accessibility win
+  - Audit row with action_type `ai_authoring_voiceover_generated`
+- New `super_admin_action_types` row: `ai_authoring_voiceover_generated`
+- Frontend integration in `embed_audio` block editor (Prompt 6)
+- ElevenLabs Pro plan or Scale plan signup decision (Pro $99/mo, Scale $330/mo — Pro is the floor for commercial license)
+- Voice cloning decision deferred: Cole can record his own voice sample (1 minute for Instant Voice Clone, 30+ min for Professional Voice Clone) if a consistent "BrainWise narrator" voice is wanted across content. Out of scope for the initial Phase 4.5b build.
+
+Estimated effort: 1 session.
+
+### [ADVANCED FEATURE / Phase 4.5c] AI avatar video generation
+
+**Provider locked: Synthesia (primary), Colossyan as L&D-focused alternative.** Synthesia specifically chosen over HeyGen for educational/coach-training use case — Synthesia is built for L&D with FOCA structured-training framework, native quiz/branching scenario support, SOC 2 Type II compliance, and instructor-tone avatars rather than HeyGen's energetic-marketing avatars. Colossyan kept as alternative if Synthesia integration friction is high.
+
+This is the most complex Phase 4.5 integration. Marked as ADVANCED FEATURE UPDATE per Session 56 decision.
+
+Build:
+- Synthesia account (Personal $30/mo for evaluation, Creator $89/mo for production, or Enterprise for full API access — pricing tier decision needed)
+- Custom avatar creation flow (one-time setup): Cole records 5-10 photos + voice sample, Synthesia generates a digital twin of Cole as BrainWise's canonical narrator. Alternative: pick a stock professional avatar from Synthesia's 230+ library and lock it as the BrainWise voice. Decision deferred to Phase 4.5c kickoff.
+- New Edge Function `generate-avatar-video`:
+  - Class A JWT + super_admin gate + impersonation gate (`permission_change` category)
+  - Accepts `script`, `avatar_id`, `voice_id`, `background_id`, `template_id` (Synthesia has FOCA training templates)
+  - Calls Synthesia API to submit video generation job — async, returns job_id
+  - Stores job_id + metadata in new `ai_video_generation_jobs` table (id, super_admin_user_id, synthesia_job_id, status, created_at, completed_at, output_url, target_block_id nullable)
+  - Returns job_id to frontend (which polls via `get_video_generation_status` RPC)
+- Async pattern: video generation takes 1-5 minutes, not seconds. Frontend polls every 10 seconds for status. When complete, downloads MP4 from Synthesia, uploads to Storage bucket, populates the lesson_blocks `video_embed` block with the URL.
+- Companion cleanup job: cron sweeps old in-flight jobs (>1 hour stuck) and marks them failed
+- New `super_admin_action_types` row: `ai_authoring_video_generated`
+- New `ai_video_generation_jobs` table (schema TBD when Phase 4.5c lands — defer details)
+- Frontend integration in `video_embed` block editor with "Generate with AI avatar" mode alongside existing "Embed URL" mode (Prompt 6 or as a Prompt 6.5 follow-up)
+- LMS integration consideration: Synthesia supports SCORM export. If BrainWise ever pursues SCORM compliance, the cross-system handoff is already half-built via Synthesia.
+
+Estimated effort: 2-3 sessions including async pattern, Storage handling, Synthesia API integration, frontend polling UI.
+
+### Phase 4.5 sequencing
+
+Order of build: 4.5a (image) → 4.5b (voiceover) → 4.5c (video). Each is independent — sequencing reflects increasing complexity and decreasing utility-per-curriculum-hour. Image is used in nearly every lesson; voiceover in many; avatar video in few.
+
+All three depend on Phase 4 (lesson_blocks editor) shipping first. Earliest 4.5 start: after Prompt 6 lands.
+
+
 
 ### [POST-LAUNCH] NAI and PTP dashboard slice-control parity fixes
 
