@@ -1,5 +1,7 @@
 # BrainWise System Architecture Reference
 
+*v49 - Session 54 CLOSE (Group C backend complete through Phase 3.5; new §27 covers all Group C tables, RPCs, notifications subsystem, and Phase 3.5 authoring-adjacent RPCs. Two standing rules locked: SOC 2 from inception, Impersonation gate from inception. Vault secret `internal_function_secret` runbook pending Cole's one-time setup before any email-channel notification fires in production. Phase 4 frontend work begins Session 55.)*
+
 *v48 - Session 53 CLOSE (Group A Phase C + Phase D fully shipped and verified end-to-end. New §26.7 hook freshness gate, §26.8 mfa_challenges fallback, §26.9 lifecycle event mode column, §26.10 paginated multi-field search, §26.11 my_access_history category default, §26.12 identityMutation helper. §25.9 partially reversed in §26.4. §25.10 corrected in §26.1. Session 54 opens Group C — Coach Certification + Resources / Learning Paths.)*
 
 ## 1. Overview
@@ -1865,4 +1867,151 @@ Five callsites refactored to use the helper:
 - MfaEnrollment.tsx: handleEnroll call
 
 **Pattern note**: any future Edge Function that returns structured error codes should adopt the same helper-with-error-body-parse pattern. The Supabase SDK's behavior of hiding non-2xx body content behind `error.context.json()` is non-obvious and the helper hides that ergonomically.
+
+## 27. Group C — Coach Certification + Resources / Learning Paths backend (Session 54)
+
+Three phases of backend work shipped in Session 54. Backend is complete for Phase 4 frontend to begin. Two standing rules locked at session open, retroactive + forward.
+
+### 27.1 Standing rules locked
+
+**Rule 1 — SOC 2 from inception.** Every new table, RPC, and Edge Function satisfies:
+- CC6.1: RLS enabled + caller validation inside RPC body
+- CC6.3: SECURITY DEFINER with explicit `REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE TO authenticated`; `SET search_path = public, pg_temp`
+- CC7.2: sanitized errors (stable error codes, no PII echo); audit columns (`created_by`, `updated_by`) on all authoring tables
+
+**Rule 2 — Impersonation gate from inception.** Every new mutation RPC or Edge Function is categorized against the §21.3 9-category denylist at design time. Every RLS WITH CHECK on user-self-write OR super-admin-write includes `NOT public.is_impersonating()` from day one. No retrofits.
+
+### 27.2 Schema additions (Phase 1)
+
+**17 new tables** in dependency order:
+
+- `certification_paths` — top-level cert program (e.g. PTP Coach, AI Transformation Coach)
+- `curricula` — slug-named learning units; published flag; archived_at
+- `certification_path_curricula` — many-to-many with display_order
+- `modules` — slug-named module units inside curricula
+- `curriculum_modules` — many-to-many with display_order, prerequisite_module_id (single-prereq v1; multi-prereq DAG deferred to v2)
+- `content_items` — polymorphic by `item_type`. 29 columns, 8 CHECK constraints enforcing per-type field requirements. 7 v1 item_types: `video`, `quiz`, `written_summary`, `skills_practice`, `file_upload`, `external_link`, `live_event`
+- `quiz_questions` — 5 question_types: `multiple_choice`, `true_false`, `select_all`, `match_definition`, `match_picture`
+- `quiz_answer_options` — `is_correct` direct trainee SELECT blocked (Migration 10.5); access routes through SECURITY DEFINER RPC only
+- `user_curriculum_assignments` — 3-source assignment model: `direct_assignment`, `certification_path`, `audience_tag`. EXCLUDE constraint on (user_id, curriculum_id, source) WHERE status='active' (permits re-assignment after unassignment)
+- `content_item_completions` — UNIQUE (user_id, content_item_id); status enum, type-specific columns (video_watch_pct, quiz_best_score_pct, quiz_passed, written_review_status, skills_trainee_signed_off, skills_mentor_signed_off, reviewer_comments)
+- `quiz_attempts` — append-only (no UPDATE policy); attempt_number monotonic per (user, content_item)
+- `written_submissions` — append-only iterations; review_decision, reviewer_comments, reviewed_at
+- `coach_mentor_assignments` — EXCLUDE constraint on (trainee_user_id, mentor_user_id, certification_id) WHERE ended_at IS NULL; CHECK `(ended_at IS NULL) XOR (end_reason IS NOT NULL)`
+- `cohorts`, `cohort_members` — Q11 seam, no UI v1
+- `user_notification_preferences` — per-user channel pref per notification_type
+- `user_notifications` — in-app inbox; dedup_key column added in Phase 3 with partial unique index
+
+**2 EXTENDS:**
+
+- `coach_certifications`: status enum changed `in_progress/certified/suspended` → `in_progress/certified/revoked` (suspended had 0 production rows, conflicted with Q9 revoke semantics); added `post_certification_benefit_applied_at` for Q13 hook idempotency
+- `resources`: added `category` text NOT NULL with CHECK on 5 v1 categories: `my_learning`, `reference_library`, `articles_guides`, `videos`, `tools_templates`
+
+**1 supporting catalog:** `notification_types_catalog` seeded with 14 v1 types (3 critical non-configurable, 8 important configurable, 3 informational configurable). `cert_path_deadline_approaching` is marked `is_v1_active=false` (v2 scope).
+
+**8 new `super_admin_action_types` seeded:** `certification_granted`, `certification_revoked`, `mentor_assigned`, `mentor_unassigned`, `curriculum_directly_assigned`, `curriculum_unassigned`, `written_submission_reviewed`, `skills_practice_signoff`.
+
+**Two retroactive Phase 1 fixes:** Migration 08.5 retrofitted `NOT public.is_impersonating()` onto 6 catalog table super admin policies. Migration 10.5 locked down `quiz_answer_options.is_correct` from trainee direct SELECT.
+
+### 27.3 Phase 2 RPC catalog
+
+All RPCs `SECURITY DEFINER` with `SET search_path = public, pg_temp`, `REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE TO authenticated`. Gate ordering: `auth.uid()` check → `assert_super_admin()` (where applicable) → `assert_impersonation_allows(<category>)` → input validation → mutation → `log_super_admin_action` (where applicable) → `notify_user` (Phase 3) → return jsonb.
+
+| RPC | Caller | Impersonation category | Tier 2 reason ≥10 chars |
+|---|---|---|---|
+| `get_user_learning_state(uuid)` | self / mentor / super admin | none (read; observation permitted) | n/a |
+| `submit_quiz_attempt(uuid, jsonb)` | trainee | `assessment_submission` | n/a |
+| `submit_written_summary(uuid, text)` | trainee | `assessment_submission` | n/a |
+| `mentor_review_submission(uuid, text, text)` | mentor or super admin | `coach_action` | n/a |
+| `mark_skills_practice_signoff(uuid, text, uuid?)` | trainee or mentor/admin | `assessment_submission` (trainee) / `coach_action` (mentor) | n/a |
+| `grant_certification(uuid, text)` | super admin | `permission_change` | ✓ |
+| `revoke_certification(uuid, text)` | super admin | `permission_change` | ✓ |
+| `assign_mentor(uuid, uuid, uuid, text)` | super admin | `permission_change` | ✓ |
+| `assign_curriculum_directly(uuid, uuid, text, …)` | super admin | `permission_change` | ✓ |
+
+Plus the Q13 no-op hook `apply_post_certification_benefits(uuid)`: stamps `post_certification_benefit_applied_at` for idempotency. Full benefit logic (12-month premium tier coupon, Stripe subscription provisioning, 13th-month auto-revert) deferred until subscription tiers + pricing are decided.
+
+**Verified end-to-end:**
+- `get_user_learning_state` viewer_role projection across 4 scenarios (super admin observation, unauthenticated→42501, non-admin cross-user→42501, self-query success)
+- `submit_quiz_attempt` impersonation gate fires with `imp_session_id=<uuid>` in DETAIL when called inside active act-mode impersonation session
+- All Tier 2 RPCs raise `22023 reason_required_min_chars: 10` on short justification
+- All super admin RPCs raise `42501 caller is not a BrainWise super admin` on non-admin caller
+
+### 27.4 Phase 3 notifications subsystem
+
+**`notify_user(p_user_id, p_notification_type, p_payload, p_dedup_key)` contract:**
+
+- Validates target user exists and notification_type is in catalog
+- `is_v1_active=false` types return `{dispatched: false, reason: 'type_not_v1_active'}` — no-op
+- Hybrid channel resolution: if `user_configurable=true`, consults `user_notification_preferences` (defaults to catalog `default_channel` if no preference row); if `user_configurable=false` (critical types), ignores preference and uses catalog default
+- `channel='none'` returns `{dispatched: false, reason: 'user_opted_out'}` — no-op
+- **In-app dispatch:** direct INSERT into `user_notifications` with `ON CONFLICT DO NOTHING` via partial unique index on `(user_id, notification_type, dedup_key) WHERE dedup_key IS NOT NULL`. Duplicate `dedup_key` returns existing `notification_id` and `{dispatched: false, reason: 'duplicate_dedup_key'}` — idempotency seam.
+- **Email dispatch:** `pg_net.http_post` fire-and-forget to `send-email` Edge Function with `x-internal-secret` header read from `vault.decrypted_secrets WHERE name = 'INTERNAL_FUNCTION_SECRET'` (uppercase — vault row name matches the Edge Function Secret env var name; both have existed since Session 48 when the Class B pattern shipped). Composes subject + html_body via `compose_notification_email` helper (inline branded templates: navy header #021F36, orange CTA #F5741A, sand background #F9F7F1).
+- **Fail-loud on missing vault secret:** raises `42501 internal_function_secret_not_in_vault` with HINT pointing at the vault row name; entire transaction rolls back. Intentional. No half-completed dispatches. End-to-end verified Session 54: `certification_granted` dispatched live, `email_logs.send_status='sent'`, Resend message ID populated.
+- **No impersonation gate inside `notify_user` itself.** Caller is responsible for its own gating. notify_user dispatches notifications TO users; impersonation context is orthogonal.
+
+**Extensibility decisions:**
+
+- Shipped `p_dedup_key` — real value, prevents double-fire on retries
+- Explicitly NOT shipped `p_channels` override — catalog `user_configurable=false` already handles critical-types-bypass-pref; speculative seam without a call site
+
+**Credential routing decision (Option A locked).** `INTERNAL_FUNCTION_SECRET` lives in Edge Function Secrets (env) for the `send-email` function's own env reads, and is also stored in `vault.secrets` so Postgres RPCs can read it. Same value, two storage locations, kept in sync manually on the rare rotation. The vault row was added Session 48 alongside the Edge Function Secrets sync; `notify_user` reads it via `vault.decrypted_secrets WHERE name = 'INTERNAL_FUNCTION_SECRET'`. Rejected Option B (dedicated dispatch-notification Edge Function — overengineering for one call site) and Option C (`email_outbox` + cron — adds 1-min latency on critical notifications, new table, new cron cadence pattern that diverges from existing 4-cron stagger).
+
+**Vault version mismatch caught Session 54.** `notify_user` was originally deployed with a lowercase `'internal_function_secret'` lookup. Production vault row is uppercase `INTERNAL_FUNCTION_SECRET`. Migration `groupc_phase3_10` corrected the RPC; no vault change needed. Postgres `LIKE` is case-sensitive — diagnostic queries that case-mangle the pattern can falsely return "secret missing" against a vault that has it under a different case.
+
+**Phase 2 RPC notification wiring map:**
+
+| RPC | Notification | Recipient | Dedup key |
+|---|---|---|---|
+| `submit_written_summary` (when submitted_for_review) | `mentor_review_required` | each active mentor | `review_required:<submission_id>:<mentor_id>` |
+| `mentor_review_submission` (approved) | `mentor_review_completed` | trainee | `review_decision:<submission_id>` |
+| `mentor_review_submission` (revision_requested) | `mentor_review_revision_requested` | trainee | `review_decision:<submission_id>` |
+| `grant_certification` | `certification_granted` (critical) | newly certified user | `grant_cert:<cert_id>` |
+| `revoke_certification` | `certification_revoked` (critical) | revoked user | `revoke_cert:<cert_id>:<minute-trunc>` |
+| `assign_mentor` | `mentor_assigned` ×2 | mentor + trainee | `mentor_assignment_{mentor,trainee}:<assignment_id>` |
+| `assign_curriculum_directly` | `module_assigned` | assigned user | `curriculum_assigned:<assignment_id>` |
+| `enroll_user_in_certification_path` (Phase 3.5) | `certification_enrolled` | enrolled user | `enroll_path:<cert_id>` |
+
+**Not wired intentionally:** `submit_quiz_attempt`, `mark_skills_practice_signoff`. No v1 catalog type for item-level pass. If Phase 5 trainee learning UI surfaces a need for module-level `module_completed` dispatch, wire there.
+
+### 27.5 Phase 3.5 — Authoring-adjacent RPCs
+
+Three RPCs added because Phase 4 management UIs need them. All Tier 2 super admin actions (reason ≥10 chars) with `permission_change` impersonation gate.
+
+- `enroll_user_in_certification_path(p_user_id, p_cert_path_id, p_reason, p_due_at?)` — atomic fanout: INSERT `coach_certifications` (status=in_progress) + INSERT N `user_curriculum_assignments` with source='certification_path'. Idempotency: rejects duplicate active enrollment of same `certification_type`. Notifies via `certification_enrolled`.
+- `unassign_mentor(p_assignment_id, p_end_reason, p_reason)` — stamps `coach_mentor_assignments.ended_at + end_reason`. Two reason params: `p_reason` is SOC 2 audit justification (≥10 chars), `p_end_reason` is operational label stored on row (e.g. `mentor_unavailable`, `trainee_completed`). No notification in v1 (catalog doesn't include mentor_unassigned).
+- `unassign_curriculum(p_assignment_id, p_reason)` — stamps `user_curriculum_assignments.status='unassigned' + unassigned_at + unassigned_by + unassigned_reason`. Historical `content_item_completions`, `quiz_attempts`, `written_submissions` preserved (CC7.2 audit retention). No notification in v1.
+
+### 27.6 Pre-existing tables discovered during Phase 3.5 recon
+
+Both tables existed before Group C work began and do not need to be created:
+
+- `coach_certification_actors` — Q5 actor flow target. Existing columns: `coach_user_id`, `certification_id`, `actor_type`, `actor_email`, `actor_first_name`, `instrument_id`, `access_code`, `status`, `created_at`, `completed_at`. Phase 7 will likely add `skills_practice_content_item_id` to link actor invitations to specific skills_practice items.
+- `coach_invitations` — Q4A invitation lifecycle target. Existing columns: `email`, `first_name`, `last_name`, `invited_by`, `token`, `certification_type`, `status`, `created_at`, `accepted_at`, `expires_at`. No current function creates a `coach_certifications` row on acceptance — `accept_coach_invitation` RPC remains a deferred gap.
+
+### 27.7 Group C deferred backend gaps
+
+These are real gaps but do not block Phase 4. Tracked so they're not lost:
+
+1. **`accept_coach_invitation` RPC** — Q4A. Coach invitation accept does not currently create `coach_certifications` row. Build when coach-onboarding UX is in scope (likely between Phase 4 and Phase 5).
+2. **Phase 7 actor flow RPCs** — Per scope, build at Phase 7.
+3. **Audience tag runtime computation** — `curricula.audience_tags` text[] exists but no function resolves user-qualifying tags. Phase 5 trainee learning UI consumes; defer until Phase 5 design.
+4. **content_items.config JSONB validation** — permissive v1; tighten per-item-type at Phase 4 design.
+5. **Authoring CRUD pattern decision** — RPC-wrapped vs direct table writes from frontend. Phase 4 prompt-time decision.
+6. **Q13 post-certification benefit hook full implementation** — currently no-op stamp.
+7. **Phase 3 14-type acceptance test pass** — systematic walkthrough under impersonation deferred to a dedicated test session.
+
+### 27.8 Locked architectural constraints carried forward
+
+These all surfaced or were reconfirmed during Session 54:
+
+- `apply_migration` reports success without confirming DB state — always follow with `execute_sql` verification
+- Multi-statement `execute_sql` returns only the last result — split intermediate checks
+- `information_schema.columns` is insufficient for CHECK constraints — always query `pg_constraint` (`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'table'::regclass`)
+- PL/pgSQL `RETURNS TABLE` columns become OUT parameters shadowing same-named table columns — prefix with `out_`
+- Edge Function Secrets not readable from Postgres; vault is. When credential routing matters, prefer vault.
+- `pg_net` schema is `extensions`, not `public`; call `extensions.net.http_post(...)` or rely on `search_path` including extensions (default Supabase posture does)
+- `auth.getClaims` is the canonical JWT verification method
+- `deploy_edge_function` requires `verify_jwt: false` passed explicitly every time
+- Two sequential Anthropic Opus calls cannot be bundled in one Edge Function — Supabase's ~150s timeout ceiling forces split
 
