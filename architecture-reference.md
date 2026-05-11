@@ -1,6 +1,8 @@
 # BrainWise System Architecture Reference
 
-*v51 - Session 55 CLOSE (Phase 4 backend prep COMPLETE + Lovable Prompt 1 landed. Backend: 8 migrations applied + verified for content authoring infrastructure — 3 unassign notification catalog entries + email templates + RPC wiring; 14 content_items per-type CHECK constraints + lesson_completion_mode column; lesson_block_types lookup with 17 v1 block types; lesson_blocks table with RLS + impersonation gate; content_items.item_type extended to 8 values; 14 new content_authoring action_types; 10 authoring CRUD RPCs deployed; AI authoring infrastructure (ai_authoring_context + ai_authoring_voice_presets with 5 seeded presets + ai_authoring_draft_generated action_type). Frontend: Lovable Prompt 1 landed — /super-admin/content-authoring route + sidebar entry + tree-navigator-and-pane shell verified live in repo. All 14 acceptance criteria met. AI Edge Functions (draft-lesson-block, scaffold-lesson, draft-text) deferred to Session 56 pending canonical _shared/impersonation_gate.ts source confirmation. New §28 covers Phase 4 prep deltas; new §29 covers AI authoring infrastructure; new §30 covers branding recon standing protocol (locked Session 55 — every Lovable prompt now requires backend + frontend + branding recon before being written).)*
+*v52 - Session 55 CLOSE (Phase 4 backend prep COMPLETE + Lovable Prompt 1 landed + invite-coach hardening FULLY shipped: backend + frontend. Backend: 8 prep migrations (notifications/CHECKs/lesson_blocks/CRUD/AI infra) + 1 hardening migration (coach_invitations email tracking columns: email_send_status/email_send_error/email_last_attempt_at); 10 authoring CRUD RPCs deployed; AI authoring infrastructure with 5 voice presets and 5 context blocks. Edge Functions: invite-coach redeployed v10→v11 with resend-aware logic (detects existing pending row and resends instead of refusing), email_type/source passed to send-email (was 'unknown'), hard email-send failure surfacing, email status persisted to row. End-to-end Resend button verified via test row. Cheryl's invitation flow verified separately. Frontend: Content Authoring shell live in production; Coach Management hardening Lovable prompt landed and verified (584 lines, up from 495) — 4 call sites use new inspectInviteCoachResponse helper, Email Status column with Sent/Failed/Pending badges, Retry Email button with destructive styling on failed rows. AI Edge Functions (3) drafted locally but not deployed pending canonical _shared/impersonation_gate.ts source confirmation in Session 56. New standing protocol locked: every Lovable prompt now requires backend + frontend + branding recon (3 passes). See architecture-reference §28-§31 for full Session 55 detail.)*
+
+*v51 - Session 55 CLOSE (initial close marker — superseded by v52 above after invite-coach hardening late-session).
 
 *v50 - Session 55 IN-PROGRESS — superseded by v51 CLOSE marker above.
 
@@ -2302,4 +2304,76 @@ Stock shadcn Badge variants only — no inline color styles for status pills. Pa
 - Subtle / "neutral" state → `<Badge variant="outline">` (transparent + border)
 
 Applied Session 55 in Lovable Prompt 1 for Published/Draft pills: Published → default (navy), Draft → secondary (cream).
+
+## 31. invite-coach hardening (Session 55)
+
+### 31.1 Diagnosis from Session 55
+
+Cole reported a coach invitation sent to `cheryl@defineconsulting.com` on 2026-05-01 never arrived. Investigation found:
+
+1. The `coach_invitations` row had been created successfully (super admin RLS-allowed direct INSERT via Edge Function)
+2. No corresponding row in `email_logs` for that recipient
+3. Of 5 coach invitations created since April 2026, ZERO had email_logs rows — but `email_logs` table only started logging on 2026-05-09, so April invitations were before the logging window
+4. Empirical test mirroring invite-coach's exact fetch pattern to send-email succeeded (200 OK with Resend message ID). The Edge Function Secret was correctly configured.
+5. Cole's later re-invite of Cheryl through the Coach Management UI worked end-to-end (email_logs row written, email delivered, accepted by Cheryl)
+
+Conclusion: the May 1 failure was either a transient infrastructure issue or a pre-May-2-deploy bug that has since been resolved. Cannot fully diagnose without May 1 email_logs data.
+
+### 31.2 Structural problems found in invite-coach v10 (still present at Session 55 start)
+
+Independent of the May 1 failure, invite-coach v10 had three real structural problems that warranted hardening:
+
+**(a) Swallowed email send failures.** The function called send-email via fetch and only logged a console warning on non-OK responses. The caller-facing response treated row-insert success as overall success regardless of email outcome. Failure modes (network blip, send-email returning 401, send-email returning 4xx-validation) were not surfaced to the frontend.
+
+**(b) Resend button was broken.** `handleResend` in `src/pages/super-admin/CoachManagement.tsx` called invite-coach with the same email as the existing pending row. invite-coach's dedup guard returned `{success: false, error: "Pending invitation already exists for this email"}` for that recipient, and the top-level HTTP status was 207 (Multi-Status). `supabase.functions.invoke()` treats any 2xx as success (populates `data`, leaves `error` null). The frontend's `if (error) ... else success-toast` pattern silently swallowed the 207 failure. Toast said "Resent" but no email was actually re-sent.
+
+**(c) email_logs rows from invite-coach were labeled `email_type='unknown'`, `source='unknown'`.** invite-coach didn't pass `email_type` or `source` to send-email's body, so send-email's `emailTypeForLog = email_type || "unknown"` fallback kicked in, making coach-invite emails impossible to filter from other email types in logs.
+
+### 31.3 Schema migration applied Session 55
+
+Added three columns to `coach_invitations` via migration `coach_invitations_email_tracking_columns`:
+
+- `email_send_status text` — NULL / 'sent' / 'failed' (CHECK constraint enforces)
+- `email_send_error text` — error message when failed
+- `email_last_attempt_at timestamptz` — timestamp of last email send attempt
+
+Plus a partial index `coach_invitations_email_send_status_idx` on (email_send_status) WHERE email_send_status = 'failed' for surfacing failed-email rows in the pending invitations list.
+
+Backfill: accepted invitations marked `email_send_status='sent'` with `email_last_attempt_at = COALESCE(accepted_at, created_at)`. Pending and expired rows left NULL (true historical unknown).
+
+### 31.4 invite-coach v11 changes
+
+Five surgical changes from v10:
+
+1. **Detects existing pending row and resends.** Instead of refusing, the function uses the existing row's token, first_name, last_name, certification_type and proceeds to send the email. Single function now handles both create-new and resend paths. Mode tag in result: `'created' | 'resent' | 'failed' | 'rejected'`.
+
+2. **Passes `email_type: 'coach_invitation'` and `source: 'invite-coach'`** to send-email so email_logs rows are properly labeled.
+
+3. **Parses send-email response body** and treats a non-2xx response OR a 2xx with explicit `success: false` as a hard per-recipient failure.
+
+4. **Treats email send failure as hard per-recipient failure** — returns `{success: false, error: emailSendError}` instead of swallowing.
+
+5. **Persists email_send_status, email_send_error, email_last_attempt_at** on the `coach_invitations` row after every email attempt (success or failure).
+
+HTTP status semantics: 200 (all success), 207 (mixed), 400 (all failed), 500 (transport/auth error). Frontend MUST inspect `data.results[]` regardless of status.
+
+Verification: a test invitation row was inserted, the Resend button was clicked from the UI, and all four hardening goals were verified — `email_send_status='sent'` written to row, email_logs entry created with `email_type='coach_invitation'`/`source='invite-coach'`, Resend message ID returned, no duplicate row created. Test row cleaned up after verification.
+
+### 31.5 Frontend hardening (Lovable prompt at Session 55 close)
+
+The Lovable prompt at session close updates four call sites in `src/pages/super-admin/CoachManagement.tsx` to use a new shared helper `inspectInviteCoachResponse` that inspects `data.results[].success` for per-recipient outcomes. Plus:
+
+- Surfaces email send failures via destructive-variant toasts with the actual error message
+- Adds an Email Status column to the pending invitations table (Sent/Failed/Pending badges)
+- Failed badge has `title` attribute tooltip showing `email_send_error`
+- Resend button becomes "Retry Email" with destructive styling when last send failed
+
+Prompt drafted Session 55, ready to land in Session 56.
+
+### 31.6 Build queue items surfaced by this work
+
+1. **MEDIUM**: Audit ALL Edge Function callers in the frontend for the same `data.results[]` inspection bug. This pattern is likely repeated for departure emails, assessment invitations, bulk operations.
+2. **MEDIUM**: Add `assert_impersonation_allows('outbound_user_communication')` to invite-coach. Currently has only manual super_admin check (Tier 2 rollout item per §21.10).
+3. **LOW**: Delete the throwaway `diag-env-check` Edge Function (id `c57588a3-910f-4ee8-8102-4e33d8829229`) from Supabase Dashboard. MCP has no delete-function method.
+4. **LOW**: invite-coach v11 retains the v10 manual super_admin check via service-role client + auth.getUser. Migrate to canonical `auth.getClaims` pattern + assert_super_admin RPC when the impersonation gate is added.
 

@@ -225,3 +225,53 @@ Backend verification queries run and confirmed at session close:
 - Lovable credit conservation: batch frontend changes into single prompts covering multiple files
 
 Begin Session 56 with Step 1 (resolve AI Edge Function deployment blocker), then Step 2 (Lovable Prompt 2 — Certification Path editor). Do not write any Lovable prompts until backend AND frontend AND branding recon are all done.
+
+## Late-session addition: invite-coach hardening (shipped Session 55 close)
+
+After session closeout artifacts had been initially prepared, Cole asked Claude to investigate why a coach invitation sent to `cheryl@defineconsulting.com` on 2026-05-01 never arrived. Investigation revealed three structural problems with the invite-coach flow (independent of the specific May 1 failure) that warranted full hardening:
+
+1. **invite-coach swallowed email send failures** — only console-warned on send-email errors, returned overall success regardless of email outcome
+2. **The Resend button was broken** — invite-coach's "Pending invitation already exists" dedup guard caused 207 responses that the frontend treated as success
+3. **email_logs rows from invite-coach were labeled `email_type='unknown'`** because invite-coach didn't pass email_type/source to send-email
+
+**Backend hardening shipped Session 55 (complete)**:
+- Migration `coach_invitations_email_tracking_columns` applied: added email_send_status/email_send_error/email_last_attempt_at columns with CHECK constraint and partial index, accepted-invitation backfill executed
+- invite-coach redeployed v10 → v11: resend-aware logic (single function handles both create and resend paths via mode detection), proper email_type/source passed to send-email, send-email response body parsed and per-recipient failures surfaced, email status persisted to row after every attempt
+- End-to-end verified via test row: pending row inserted, Resend button clicked from UI, email_send_status='sent' written, email_logs entry created with email_type='coach_invitation'/source='invite-coach', Resend message ID returned, no duplicate row created
+
+**Frontend hardening — Lovable prompt landed in Session 55 (complete)**: 
+
+Updated `src/pages/super-admin/CoachManagement.tsx` at 4 call sites (SingleInviteTab.handleSend, BulkInviteTab.handleSendAll, UploadExcelTab.handleSend, handleResend) to use a new shared helper `inspectInviteCoachResponse` that inspects `data.results[].success` for per-recipient outcomes. Plus:
+- Extended Invitation interface with three new tracking fields
+- Updated fetchData SELECT to include the new columns
+- Added Email Status column to pending invitations table (Sent / Failed / Pending badges)
+- Failed badge has `title` attribute showing email_send_error
+- Resend button becomes "Retry Email" with destructive styling when last send failed
+
+Verified live in repo at `src/pages/super-admin/CoachManagement.tsx` (584 lines, up from 495). All acceptance criteria met.
+
+(Unchanged from earlier handoff — see ai-edge-functions-session-55-drafts.md artifact)
+
+## Updated Session 56 priorities, in order
+
+### Priority 1 — Resolve AI Edge Function deployment blocker
+
+(Unchanged from earlier handoff — see ai-edge-functions-session-55-drafts.md artifact)
+
+### Priority 2 — Lovable Prompt 2: Certification Path editor
+
+(Unchanged from earlier handoff)
+
+### Priorities 3+: subsequent Lovable prompts
+
+(Unchanged — Prompts 3-11 of the Phase 4 sequence)
+
+## Additional build queue items from invite-coach hardening
+
+Add to build queue at appropriate priority:
+
+1. **MEDIUM**: Audit ALL Edge Function callers in the frontend for the same `data.results[]` inspection bug. This pattern is likely repeated in departure emails, assessment invitations, bulk operations. The fix pattern is now established (see inspectInviteCoachResponse helper).
+2. **MEDIUM**: Add `assert_impersonation_allows('outbound_user_communication')` to invite-coach. Currently has only manual super_admin check (Tier 2 rollout per architecture-reference §21.10).
+3. **LOW**: Delete the throwaway `diag-env-check` Edge Function (function id `c57588a3-910f-4ee8-8102-4e33d8829229`, deployed Session 55 for environment variable diagnostics). MCP has no delete-function method; do via Supabase Dashboard.
+4. **LOW**: Migrate invite-coach v11's manual super_admin check (service-role client + auth.getUser) to canonical auth.getClaims + assert_super_admin RPC pattern when the impersonation gate is added.
+
