@@ -1,5 +1,9 @@
 # BrainWise System Architecture Reference
 
+*v51 - Session 55 CLOSE (Phase 4 backend prep COMPLETE + Lovable Prompt 1 landed. Backend: 8 migrations applied + verified for content authoring infrastructure — 3 unassign notification catalog entries + email templates + RPC wiring; 14 content_items per-type CHECK constraints + lesson_completion_mode column; lesson_block_types lookup with 17 v1 block types; lesson_blocks table with RLS + impersonation gate; content_items.item_type extended to 8 values; 14 new content_authoring action_types; 10 authoring CRUD RPCs deployed; AI authoring infrastructure (ai_authoring_context + ai_authoring_voice_presets with 5 seeded presets + ai_authoring_draft_generated action_type). Frontend: Lovable Prompt 1 landed — /super-admin/content-authoring route + sidebar entry + tree-navigator-and-pane shell verified live in repo. All 14 acceptance criteria met. AI Edge Functions (draft-lesson-block, scaffold-lesson, draft-text) deferred to Session 56 pending canonical _shared/impersonation_gate.ts source confirmation. New §28 covers Phase 4 prep deltas; new §29 covers AI authoring infrastructure; new §30 covers branding recon standing protocol (locked Session 55 — every Lovable prompt now requires backend + frontend + branding recon before being written).)*
+
+*v50 - Session 55 IN-PROGRESS — superseded by v51 CLOSE marker above.
+
 *v49 - Session 54 CLOSE (Group C backend complete through Phase 3.5; new §27 covers all Group C tables, RPCs, notifications subsystem, and Phase 3.5 authoring-adjacent RPCs. Two standing rules locked: SOC 2 from inception, Impersonation gate from inception. Vault secret `internal_function_secret` runbook pending Cole's one-time setup before any email-channel notification fires in production. Phase 4 frontend work begins Session 55.)*
 
 *v48 - Session 53 CLOSE (Group A Phase C + Phase D fully shipped and verified end-to-end. New §26.7 hook freshness gate, §26.8 mfa_challenges fallback, §26.9 lifecycle event mode column, §26.10 paginated multi-field search, §26.11 my_access_history category default, §26.12 identityMutation helper. §25.9 partially reversed in §26.4. §25.10 corrected in §26.1. Session 54 opens Group C — Coach Certification + Resources / Learning Paths.)*
@@ -2014,4 +2018,286 @@ These all surfaced or were reconfirmed during Session 54:
 - `auth.getClaims` is the canonical JWT verification method
 - `deploy_edge_function` requires `verify_jwt: false` passed explicitly every time
 - Two sequential Anthropic Opus calls cannot be bundled in one Edge Function — Supabase's ~150s timeout ceiling forces split
+
+## 28. Group C Phase 4 prep — backend deltas (Session 55)
+
+### 28.1 Notification catalog additions for unassign flows
+
+Three new notification types added to `notification_types_catalog` and wired into `compose_notification_email` + their source RPCs:
+
+- `curriculum_unassigned` (category `learning`, important, both channels, user_configurable=true) — fired by `unassign_curriculum` to the trainee.
+- `mentor_unassigned_trainee` (category `mentor_review`, important, both channels, user_configurable=true) — fired by `unassign_mentor` to the trainee.
+- `mentor_unassigned_mentor` (category `mentor_review`, important, both channels, user_configurable=true) — fired by `unassign_mentor` to the mentor.
+
+`unassign_mentor` therefore now writes **two** `notify_user` calls per invocation (one per role), distinct dedup_keys, distinct templates. This was a deliberate split (Option Y from Session 55 design) so trainees and mentors can independently configure their unassign notification preferences.
+
+Dedup_key shape: `<notification_type>:<assignment_id>`.
+
+### 28.2 Pattern: separate catalog types for separate audiences on the same event
+
+When a single DB event fires notifications to multiple audiences with different framings (trainee being informed vs mentor being informed), create one catalog type per audience rather than one type with a `recipient_role` payload field. Reasons:
+
+- Users can independently configure preferences per role
+- `compose_notification_email` stays a clean `CASE notification_type` dispatch with no payload-branching inside a single WHEN clause
+- Auditability: `user_notifications` rows carry distinct notification_type values that match the recipient's role at a glance
+
+Cost: one extra catalog row per audience. Negligible.
+
+### 28.3 Verification pattern for new compose_notification_email branches
+
+After adding a WHEN clause to `compose_notification_email`, smoke-test by direct invocation:
+
+```sql
+SELECT subject FROM compose_notification_email(
+  '<any-uuid>'::uuid,
+  '<new_notification_type>',
+  '<minimum-payload-shape>'::jsonb,
+  '<test-full-name>'
+);
+```
+
+This catches typos in subject lines and payload key references without firing a real notification. Session 55 ran this for all 3 new types pre-Phase-4-build.
+
+### 28.4 content_items per-type CHECK constraints
+
+Phase 1 (Session 54) shipped `content_items` with value-validity CHECKs only (enum membership, range bounds). Per-type required-field enforcement (e.g., "if item_type='video' then video_source_type IS NOT NULL") was NOT shipped. Migration 02 retrofitted both presence and cleanup CHECKs:
+
+**Presence CHECKs (7)** — one per pre-lesson_blocks item_type. Pattern: `CHECK (item_type <> 'X' OR (<required fields IS NOT NULL>))`.
+
+**Cleanup CHECKs (7)** — one per item_type. Pattern: `CHECK (item_type = 'X' OR (<other-type fields IS NULL>))`. Prevents stale per-type data on type-changed rows.
+
+**Combined effect**: a `content_items` row of `item_type='video'` must have non-null video fields AND null everything-else. A `quiz` row must have non-null quiz fields AND null everything-else. And so on.
+
+**Cleanup CHECKs apply across all 8 item_types** including `lesson_blocks` (Migration 03 added `lesson_blocks` to the item_type enum, so the cleanup CHECKs now require lesson_blocks rows to have all other item-type fields null — they do by default since nothing per-type is needed for lesson_blocks at the content_items layer; per-lesson content lives in the `lesson_blocks` table).
+
+**Architectural decision: dual-layer enforcement.** Presence is enforced by both the RPC wrapper (friendly errors) and the DB (defense in depth). Direct-SQL ops by super admins bypassing the RPC still cannot create malformed rows. This matches the SOC 2 standing rule from Session 54.
+
+### 28.5 lesson_blocks infrastructure (Phase 4 Rise-like authoring foundation)
+
+Decision: build Rise-style lesson authoring as an 8th `content_items.item_type` value (`lesson_blocks`) plus a child `lesson_blocks` table holding ordered, typed blocks for one lesson.
+
+**`lesson_block_types` lookup table** (Option C pattern, matches `super_admin_action_types`):
+- PRIMARY KEY block_type text
+- category text CHECK in ('content', 'display_interactive', 'interactive', 'scored')
+- is_interactive, is_scored, description, is_v1_active
+
+**17 v1 block types seeded** (4 categories):
+
+- **content (7)**: text, heading, image, video_embed, divider, quote, list
+- **display_interactive (4)**: callout, stat_callout, statement_a_b, embed_audio
+- **interactive (5)**: tabs, flashcards, accordion, button_stack, scenario
+- **scored (1)**: knowledge_check
+
+Adding an 18th block type is a single `INSERT INTO lesson_block_types` row + frontend renderer + (optional) editor form. No DDL.
+
+**`lesson_blocks` table**:
+- id uuid PK
+- content_item_id uuid FK → content_items.id ON DELETE CASCADE
+- block_type text FK → lesson_block_types.block_type ON UPDATE CASCADE ON DELETE RESTRICT
+- display_order integer (>= 0)
+- config jsonb DEFAULT '{}' — per-block-type data (e.g., for tabs: `{tabs: [{label, body_markdown}]}`)
+- created_at, created_by, updated_at, updated_by, archived_at
+
+**Indexes**:
+- UNIQUE (content_item_id, display_order) WHERE archived_at IS NULL — enforces dense ordering on active blocks
+- (content_item_id, display_order) WHERE archived_at IS NULL — trainee renderer hot path
+
+**RLS (two policies)**:
+- `lesson_blocks_super_admin_write`: FOR ALL TO authenticated, USING(super_admin), WITH CHECK(super_admin AND NOT public.is_impersonating()) — Standing Rule 2 (Session 54)
+- `lesson_blocks_trainee_read`: FOR SELECT TO authenticated, USING(archived_at IS NULL AND EXISTS active curriculum assignment chain)
+
+**`content_items.lesson_completion_mode` column**:
+- text, nullable for non-lesson_blocks rows
+- CHECK: when item_type='lesson_blocks' must be NOT NULL and IN ('scroll_and_checks', 'explicit_continue'); when item_type<>'lesson_blocks' must be NULL
+- Both modes selectable per-content-item by the author. Default in UX layer: `explicit_continue`.
+
+### 28.6 Phase 4 authoring CRUD RPC catalog (10 RPCs)
+
+All SECURITY DEFINER, all gated by `assert_super_admin()` + `assert_impersonation_allows('permission_change')`. All require `p_reason` with min 10 chars (SOC 2 CC7.2 audit justification). All write to `super_admin_audit_log` via `log_super_admin_action()` using the 14 new content_authoring action_types seeded in Migration 04a.
+
+**Pattern locked**: every authoring RPC follows the same template — auth → super_admin → impersonation gate → input validation → write + audit (+ notify if applicable) → return as jsonb.
+
+**RPC catalog**:
+
+| RPC | Action types | Notes |
+|---|---|---|
+| `upsert_certification_path` | certification_path_created/updated | Unified create+update; create when p_id IS NULL |
+| `archive_certification_path` | certification_path_archived | Soft-delete via archived_at, also sets is_published=false |
+| `upsert_curriculum` | curriculum_created/updated | Handles curriculum row AND optional certification_path_curricula attachment (single transaction) |
+| `archive_curriculum` | curriculum_archived | Soft-delete |
+| `upsert_module` | module_created/updated | Handles module row AND optional curriculum_modules attachment |
+| `archive_module` | module_archived | Soft-delete |
+| `upsert_content_item` | content_item_created/updated | Polymorphic; takes `p_type_config jsonb` envelope + extracts per-type fields. **Forbids item_type changes on existing rows** — delete + recreate instead |
+| `archive_content_item` | content_item_archived | Soft-delete via archived_at |
+| `reorder_content_items` | content_items_reordered | Bulk-update display_order; validates array covers ALL active items in module |
+| `replace_lesson_blocks` | lesson_blocks_replaced | Atomic-replace pattern: archives all current active blocks, inserts new array in order |
+
+### 28.7 replace_lesson_blocks atomic-replace pattern
+
+The lesson_blocks editor sends the entire block array on Save, not per-block CRUD. The RPC:
+
+1. Validates every block's block_type up front (before any writes) against `lesson_block_types`
+2. Archives all currently-active lesson_blocks rows for the content_item (UPDATE … SET archived_at = now())
+3. Inserts new rows with display_order = array index
+
+Trade-off: no per-block audit history (only "blocks replaced at T"). Acceptable for authoring (versus a regulated content-versioning workflow). If per-block diff history becomes needed, can be added internally to this RPC without changing API contract.
+
+### 28.8 Polymorphic content_item upsert: server-side validation
+
+`upsert_content_item` extracts per-type fields from `p_type_config` JSONB via per-type CASE branches and validates required-by-type presence BEFORE inserting. Friendly error messages like `video_required_fields_missing: video_source_type and video_source_id` instead of raw `23514` CHECK violation messages.
+
+Defense-in-depth: even if the RPC's per-type validation is bypassed (impossible from the application layer, but for direct-SQL super admins), the DB-level CHECKs from Migration 02 still fire.
+
+`p_type_config` envelope structure varies by item_type:
+
+```jsonc
+// video
+{"video_source_type": "mux", "video_source_id": "abc123", "video_completion_threshold_pct": 95}
+
+// quiz
+{"quiz_pass_threshold_pct": 80, "quiz_show_correct_mode": "after_pass"}
+
+// written_summary
+{"written_completion_mode": "auto", "written_min_chars": 500, "written_max_chars": 2000}
+
+// skills_practice
+{"skills_signoff_required": "both_required", "skills_actor_invitation_required": false, "skills_optional_attachment": true}
+
+// file_upload
+{"file_upload_max_bytes": 10485760, "file_upload_allowed_extensions": ["pdf","docx"]}
+
+// external_link
+{"external_url": "https://..."}
+
+// live_event
+{"event_scheduled_at": "2026-06-01T15:00:00Z", "event_external_id": "zoom-12345"}
+
+// lesson_blocks (no type_config needed; lesson_completion_mode goes in separate p_lesson_completion_mode param)
+{}
+```
+
+### 28.9 Impersonation gate coverage on all Phase 4 backend
+
+Every Phase 4 prep RPC calls `assert_impersonation_allows('permission_change')`. This means even a super admin in act-mode impersonation cannot create, edit, archive, reorder, or replace authoring content. The category `permission_change` is denylisted unconditionally in `assert_impersonation_allows` (Session 49 lockdown). This is Standing Rule 2 from inception.
+
+
+## 29. AI authoring infrastructure (Session 55)
+
+### 29.1 Tables added
+
+**`ai_authoring_context`** — versioned context blocks injected into AI authoring Edge Function system prompts.
+- `id`, `context_name`, `version`, `body_markdown`, `is_active`, `notes`, audit fields
+- UNIQUE constraint: only one active version per `context_name` at a time (partial index)
+- 5 v1 context blocks seeded: `platform_overview`, `framework_terminology`, `scientific_foundations`, `output_format_rules`, `guardrails`
+- RLS: super admin read/write only, impersonation gate from inception (Standing Rule 2)
+- Service-role read used by Edge Functions to fetch active context for injection
+
+**`ai_authoring_voice_presets`** — voice/tone presets for AI authoring drafts.
+- `id`, `preset_key`, `display_name`, `short_description`, `example_paragraph`, `voice_guidance_markdown`, `display_order`, `is_active`, `is_system`, audit fields
+- 5 system presets seeded:
+  1. `conversational_coach` — warm, second-person, shared experience
+  2. `tactical_direct` — short sentences, numbered steps, action-oriented
+  3. `reflective_inquiry` — questions over assertions, encourages introspection
+  4. `academic_grounded` — formal, citation-aware, precise terminology
+  5. `scenario_storyteller` — paints scenes, concrete client encounters
+- `is_system=true` marks seed presets (immutable in v1 UX); `is_system=false` reserved for future user-added presets
+- "Custom" voice handled at request layer via `voice_preset_key='custom'` + free-text body fields; no row needed
+- RLS: super admin read/write only, impersonation gate from inception
+
+### 29.2 Action type added
+
+`ai_authoring_draft_generated` — category `content_authoring`, NOT `requires_justification` (low friction during drafting), NOT `is_mutation` (no DB write of authored content; the downstream `content_item_created/updated` covers that), `denylist_during_impersonation=true`.
+
+Logged by AI authoring Edge Functions each time a draft is generated, regardless of whether the author accepts it. Provides usage audit without polluting `content_authoring` action stream with abandoned drafts.
+
+### 29.3 Voice handling pattern (sticky default within a lesson)
+
+UX rule locked Session 55: voice is selected per-draft, but each lesson_blocks content_item remembers the last voice used; subsequent draft requests within the same lesson pre-fill that voice. Author can override at any draft. Voice does NOT persist as a column on `content_items` — it's a frontend-only sticky default in the lesson editor's local state.
+
+Reason for not persisting: a "lesson voice" attribute would imply all blocks in the lesson MUST share a voice, which is too rigid. Sticky default gets the cohesion benefit without the rigidity.
+
+### 29.4 Context-injection strategy (Option I, deferred Option II to Phase 4.5)
+
+Option I shipped: `ai_authoring_context` table holds versioned ~500-word blocks injected verbatim into Edge Function system prompts. Refining the AI voice/framing requires editing rows, not redeploying code.
+
+Option II (RAG against books, podcast transcripts, papers, shipped content) deferred to Phase 4.5 as a separate workstream. Both options use the same injection point in the Edge Function code — switching is additive, not breaking.
+
+### 29.5 AI Edge Functions — pending Session 56
+
+Three Edge Functions designed, source drafted locally, NOT YET DEPLOYED at Session 55 close:
+
+- `draft-lesson-block` — generates a single block matching the requested block_type's config schema; uses voice preset; calls `claude-opus-4-7`
+- `scaffold-lesson` — generates full lesson_blocks array; mixed block types; sticky voice from frontend
+- `draft-text` — generic text field drafts (descriptions, titles)
+
+Blocker: canonical `_shared/impersonation_gate.ts` module source not on hand. Arch-ref §22.1 documents the contract (exports, types) but not the implementation body. Two options for Session 56: (A) Cole pastes the gate module source in chat, or (B) pull source via a deployed function inspection method. Without verified source, Edge Function deploys would either bundle a reconstructed-from-docs module (risk: subtle behavior drift on the impersonation gate, defeating Standing Rule 2) or fail to import.
+
+All three Edge Function source files cached locally at `/home/claude/edge-functions/<name>/index.ts` for Session 55 → 56 continuity if local sandbox persists; if not, they're fully re-derivable from §29 spec.
+
+## 30. Branding recon — standing protocol (Session 55)
+
+### 30.1 The rule
+
+Before any Lovable prompt is written, the recon checklist requires three passes:
+
+1. **Backend recon** — schema, RLS, RPCs, Edge Functions verified end-to-end (existing protocol, no change)
+2. **Frontend recon** — existing components, route patterns, hooks, shared utilities cached locally (existing protocol, no change)
+3. **Branding recon (NEW)** — actual brand tokens, typography, and design patterns pulled from source rather than assumed (locked Session 55)
+
+The branding recon is non-negotiable. userMemories contains brand color hex values but says nothing about how they're exposed in the codebase, which token system is canonical for which surface, or what conventions existing pages already follow.
+
+### 30.2 What branding recon pulls
+
+For internal-admin pages (super-admin/* and similar):
+
+- `tailwind.config.ts` — fontFamily mapping, boxShadow tokens, Tailwind extensions
+- `src/index.css` — shadcn HSL token values, `--bw-*` hex token mirror, dark-mode overrides
+- `src/styles/marketing-tokens.css` — full brand palette (mustard, plum, forest, all shade variants), `--bw-marketing-root` scope rules, button system classes (`.bw-btn-*`)
+- One or two cached super-admin or internal-admin pages to confirm:
+  - h1/h2 style conventions (heading classes, font-display vs font-sans)
+  - Badge variant patterns (status pills: which variants map to which states)
+  - Button variant patterns (CTA vs secondary vs ghost)
+  - Card and layout conventions
+
+### 30.3 The two token systems
+
+The codebase has two distinct token systems serving distinct surfaces:
+
+**Shadcn HSL tokens** (`bg-primary`, `bg-accent`, `bg-muted`, `text-foreground`, `text-muted-foreground`, etc.):
+- Used by app chrome including super-admin/*, /dashboard, /coach, /learning
+- Defined in `src/index.css` `:root` block
+- Mapped to brand colors via HSL conversions (`--primary: 211 94% 11%` = navy, `--accent: 25 92% 53%` = orange)
+- Tailwind utilities resolve via `tailwind.config.ts` color block
+
+**Marketing tokens** (`var(--bw-navy)`, `var(--bw-orange)`, `.bw-btn-primary`, etc.):
+- Used by public marketing site under `.bw-marketing-root` scope
+- Defined in `src/styles/marketing-tokens.css`
+- Raw hex variables (not HSL), button system classes (`.bw-btn-*`), elevation/shadow/spacing tokens
+- NOT exposed as Tailwind utility classes
+
+**Rule: never mix the two systems in one component.** Internal admin tools use shadcn HSL tokens; public marketing pages use marketing tokens with `.bw-marketing-root` scope. If a brand color is needed in an admin tool that doesn't have a shadcn equivalent (e.g., mustard for NAI Saturation), use inline style with the `--bw-*` variable: `style={{ color: 'var(--bw-mustard)' }}`.
+
+### 30.4 Brand system gap noted Session 55
+
+`--bw-mustard #7a5800` (NAI Saturation color locked Session 38/39 per userMemories) does NOT exist as a variable in either `index.css` or `marketing-tokens.css`. NAI components must be referencing the hex inline. Build queue item added: "Add `--bw-mustard: #7a5800` to marketing-tokens.css + index.css mirror; audit NAI components for inline hex references and refactor to use the token."
+
+### 30.5 Font convention for internal admin tools
+
+Verified Session 55 against `super-admin/Users.tsx`, `super-admin/PlatformHealth.tsx`, `super-admin/CreateOrganization.tsx`: **no `font-display` reach-throughs in any super-admin page**. All h1/h2 elements use the default `font-sans` (Montserrat). Heading typography varies slightly across pages (`text-2xl font-semibold` vs `text-2xl font-bold` vs `text-2xl font-semibold tracking-tight`), but Montserrat is universal.
+
+Convention: **for internal admin tools, do not specify `font-display` on headings — it deviates from existing pattern.** Reserve `font-display` (Poppins) for public marketing site only.
+
+userMemories had this backwards ("Montserrat headings, Poppins body"). The actual `tailwind.config.ts` mapping is `sans: ['Montserrat']` (default body) + `display: ['Poppins']` (marketing site headings). userMemories will be updated in a future session via memory_user_edits.
+
+### 30.6 Status badge pattern for internal admin tools
+
+Verified Session 55 against `super-admin/Users.tsx` (accountTypeBadgeVariant helper):
+
+Stock shadcn Badge variants only — no inline color styles for status pills. Pattern:
+- Most-prominent / "active" state → `<Badge>` (default = navy primary)
+- Muted / "in-progress" state → `<Badge variant="secondary">` (cream)
+- Destructive / "blocked" state → `<Badge variant="destructive">` (red)
+- Subtle / "neutral" state → `<Badge variant="outline">` (transparent + border)
+
+Applied Session 55 in Lovable Prompt 1 for Published/Draft pills: Published → default (navy), Draft → secondary (cream).
 
