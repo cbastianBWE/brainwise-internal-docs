@@ -2224,15 +2224,17 @@ Option II (RAG against books, podcast transcripts, papers, shipped content) defe
 
 ### 29.5 AI Edge Functions — pending Session 56
 
-Three Edge Functions designed, source drafted locally, NOT YET DEPLOYED at Session 55 close:
+Three Edge Functions designed, full TypeScript source drafted at Session 55 close (preserved in Session 55 → 56 handoff artifact `ai-edge-functions-session-55-drafts.md`), NOT YET DEPLOYED:
 
-- `draft-lesson-block` — generates a single block matching the requested block_type's config schema; uses voice preset; calls `claude-opus-4-7`
-- `scaffold-lesson` — generates full lesson_blocks array; mixed block types; sticky voice from frontend
-- `draft-text` — generic text field drafts (descriptions, titles)
+- `draft-lesson-block` (342 lines) — generates a single block matching the requested block_type's config schema; uses voice preset; calls `claude-opus-4-7`
+- `scaffold-lesson` (358 lines) — generates full lesson_blocks array; mixed block types; sticky voice from frontend
+- `draft-text` (312 lines) — generic text field drafts (descriptions, titles); supports refinement mode
 
-Blocker: canonical `_shared/impersonation_gate.ts` module source not on hand. Arch-ref §22.1 documents the contract (exports, types) but not the implementation body. Two options for Session 56: (A) Cole pastes the gate module source in chat, or (B) pull source via a deployed function inspection method. Without verified source, Edge Function deploys would either bundle a reconstructed-from-docs module (risk: subtle behavior drift on the impersonation gate, defeating Standing Rule 2) or fail to import.
+All three share identical auth/gate/context-fetch/voice-resolution/Anthropic-call/audit-log scaffolding. Differences: output shape (single object vs array vs plain text), schema validation depth, output token budget (3k / 8k / 1.5k respectively).
 
-All three Edge Function source files cached locally at `/home/claude/edge-functions/<name>/index.ts` for Session 55 → 56 continuity if local sandbox persists; if not, they're fully re-derivable from §29 spec.
+Blocker: canonical `_shared/impersonation_gate.ts` module source not on hand. §22.1 documents the contract (exports, types) but not the implementation body. Two options for Session 56: (A) Cole pastes the gate module source from his local Supabase functions directory, or (B) Cole runs `supabase functions download _shared` from CLI and pastes the result. Without verified source, Edge Function deploys would either bundle a reconstructed-from-docs module (risk: subtle behavior drift on the impersonation gate, defeating Standing Rule 2) or fail to import.
+
+Full source bodies are in the Session 55 handoff artifact — not re-derivable from this section alone.
 
 ## 30. Branding recon — standing protocol (Session 55)
 

@@ -132,15 +132,19 @@ Three Edge Functions designed and source-drafted at Session 55 close, NOT deploy
 - `scaffold-lesson`
 - `draft-text`
 
-**The blocker**: arch-ref §22.1 documents the gate module's exports (types, function signatures, `ImpersonationDeniedError` class) but does NOT document the implementation body. Cole's brainwise-blueprint repo on GitHub does not include `supabase/functions/_shared/impersonation_gate.ts` (only ~10 functions tracked in repo vs ~52 deployed — known drift, build queue item).
+**Source for all three is preserved at session close** in the artifact `ai-edge-functions-session-55-drafts.md` (presented to Cole alongside the markdown bundle). The artifact contains:
+- Full TypeScript source for each function (342 + 358 + 312 = ~1012 lines total)
+- Deploy parameters (`verify_jwt: false`, `entrypoint_path`, `files` array layout)
+- Test payloads for each function
+- Curl verification commands
+
+**The blocker**: arch-ref §22.1 documents the gate module's exports (types, function signatures, `ImpersonationDeniedError` class) but does NOT document the implementation body. The brainwise-blueprint repo on GitHub does not include `supabase/functions/_shared/impersonation_gate.ts` (only ~10 of ~52 deployed functions tracked in repo — known drift, build queue item).
 
 **Two paths forward in Session 56**:
 - **(A) Cole pastes the canonical `_shared/impersonation_gate.ts` source from his local Supabase functions directory** — preferred path
-- **(B) Pull source via deployed function inspection** — check if Supabase admin API exposes deployed function source, OR ask Cole to run `supabase functions download _shared` from CLI
+- **(B) Cole runs `supabase functions download _shared` from CLI and pastes the result** — works if the helper module is in fact deployed (it should be, given Session 49 deployed it via test-impersonation-gate Edge Function)
 
-Once source is verified, deploy all three AI Edge Functions with the canonical helper bundled in the `files` array. Curl-verify each before any frontend wiring.
-
-Edge Function source drafts cached at `/home/claude/edge-functions/<name>/index.ts` if the sandbox persists; if not, fully re-derivable from architecture-reference §29.5 spec.
+Once source is verified, deploy all three AI Edge Functions per the sequence in `ai-edge-functions-session-55-drafts.md`. Curl-verify each before any frontend wiring.
 
 ### 2. Lovable Prompt 2 — Certification Path editor
 
