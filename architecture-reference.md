@@ -1,5 +1,7 @@
 # BrainWise System Architecture Reference
 
+*v59 - Session 59 CLOSE (§40 added: Parent entity thumbnails — schema extensions to content_asset_refs for 5-way parent FK, thumbnail_asset_id columns on all 4 parent tables, cascade helpers, validation + idempotent ref helpers, amended upsert/archive RPCs, extended request_asset_upload RPC + Edge Function v2, frontend integration, idempotent ref creation pattern locked as standing rule for any dual-write-path refs, verified end-to-end across all 4 entity types with library reuse pattern confirmed. Two new architectural standing rules embedded: (1) CREATE OR REPLACE on RPC with new arg list creates separate overload NOT replacement — same migration MUST follow with explicit DROP FUNCTION of legacy signature; (2) Sticky positioning does NOT work inside AppLayout main's overflow-auto scroll context — use direct height calculations like h-[calc(100vh-7rem)] self-start instead. Prompt 6 sub-prompt scoping for Sessions 60+ persisted to internal-docs/prompt-6-scope-summary.md with locked decisions across 6a/6a-AI/6b/6c.)*
+
 *v58 - Session 58 CLOSE (§38 added: Prompt 5.6 native asset upload infrastructure — buckets, schema, RPC catalog, Edge Functions, cron schedule, helper functions, two-step browser-direct upload protocol, Pattern C reads decision. §39 added: storage.objects RLS for super-admin TUS uploads — the supplementary migration prompt_5_6_1_super_admin_storage_rls_for_tus added 4 super-admin policies (INSERT, SELECT, UPDATE, DELETE) on storage.objects scoped to bucket_id='lesson-assets' with NOT public.is_impersonating() guards on writes. Required because TUS resumable uploads at /storage/v1/upload/resumable authenticate via Authorization: Bearer <user JWT>, not via signed-upload-tokens. The x-signature header path uses a different signature format (verifyObjectSignature) and would have required an undocumented /upload/resumable/sign endpoint. Using user JWT with RLS gates is cleaner, follows the canonical Supabase docs example, and the audit/registry chain still goes through the Edge Function. The service_role-ALL policy stays in place for sweep cron access.)*
 
 *v57 - Session 58 INTERIM (Never pushed to GitHub. Content folded into v58.)*
@@ -2699,3 +2701,116 @@ Independent of bucket and RLS configuration, Supabase has two project-level uplo
 - `UPLOAD_FILE_SIZE_LIMIT_STANDARD`: a separate, tighter cap for standard PUT uploads.
 
 Both must be raised in the Supabase Dashboard to allow uploads above the defaults. Session 58 raised the global limit to 5 GB to match the bucket's `file_size_limit`. The standard limit is unset (defaults to ~50 MB) — irrelevant for our TUS-based uploads but a footgun if anyone tries non-TUS uploads later.
+
+## 40. Parent entity thumbnails (Prompt 7, Session 59)
+
+Thumbnails on `certification_paths`, `curricula`, `modules`, and `content_items` use the same `content_assets` + `content_asset_refs` infrastructure shipped in §38, extended to support all four parent types.
+
+### Schema additions
+
+**`content_asset_refs` extended** (Option B locked Session 59):
+
+- New columns: `module_id uuid REFERENCES modules(id)`, `curriculum_id uuid REFERENCES curricula(id)`, `certification_path_id uuid REFERENCES certification_paths(id)`.
+- Replaced 2-way exactly-one CHECK with 5-way: exactly one of `{content_item_id, lesson_block_id, module_id, curriculum_id, certification_path_id}` is non-null.
+- Three new partial indexes: `(<parent_id>)` where `archived_at IS NULL AND <parent_id> IS NOT NULL`.
+
+Why Option B: one mechanism (refs rows) is authoritative for ref counting across all five parent types. Alternative (direct `thumbnail_asset_id` column without ref row for the new three parents) would have forced the auto-archive logic to consult both refs table AND four direct columns, creating drift risk.
+
+**`thumbnail_asset_id` column on all four parent tables** — `uuid REFERENCES content_assets(id) ON DELETE SET NULL`. The `ON DELETE SET NULL` is defense-in-depth: the hard-delete cron should never reach an asset with a live ref, but if it does, the parent row survives.
+
+### Cascade helpers
+
+Mirror `_cascade_archive_asset_refs_for_content_item` from §38 for the three new parent types:
+
+- `_cascade_archive_asset_refs_for_module(p_module_id, p_caller_id, p_archive_reason)`
+- `_cascade_archive_asset_refs_for_curriculum(p_curriculum_id, p_caller_id, p_archive_reason)`
+- `_cascade_archive_asset_refs_for_certification_path(p_certification_path_id, p_caller_id, p_archive_reason)`
+
+Each: archives all active refs pointing to the parent, then auto-archives non-library assets at zero refs (via `_archive_asset_internal` from §38).
+
+The content_item helper still handles its own + downstream lesson_block refs. Parent helpers (module/curriculum/certification_path) only touch refs pointing DIRECTLY at the parent — they do NOT cascade through children. Rationale: `archive_module` already does not auto-archive its child content_items (Phase 4 RPC design); preserving that contract avoids cross-level coupling.
+
+### Thumbnail-specific helpers (Session 59)
+
+`_validate_thumbnail_asset(p_asset_id)` — raises if NOT (exists AND status='active' AND asset_kind='image'). Called from every upsert RPC before mutation.
+
+`_archive_thumbnail_ref_and_maybe_asset(p_old_asset_id, p_parent_type, p_parent_id, p_caller_id, p_archive_reason)` — archives the active thumbnail ref for `(parent_type, parent_id, asset_id)` and, if the asset is non-library + active + zero remaining refs, auto-archives the asset. Called from the diff path of each upsert RPC when an old thumbnail is removed or replaced. `p_parent_type` is one of `content_item | module | curriculum | certification_path`.
+
+### Amended RPCs
+
+**`upsert_certification_path`, `upsert_curriculum`, `upsert_module`, `upsert_content_item`** — each gains a new `p_thumbnail_asset_id uuid DEFAULT NULL` parameter at the end. Diff-and-update behavior:
+
+- Validate the new asset via `_validate_thumbnail_asset` BEFORE mutation (raise on bad input).
+- On INSERT: write column. If non-null, insert active ref with `ref_field = 'thumbnail'`.
+- On UPDATE: detect old vs new thumbnail diff:
+  - `NULL → NULL` or same value: no ref work.
+  - `NULL → value`: write column, insert new ref.
+  - `value → NULL`: write column, call `_archive_thumbnail_ref_and_maybe_asset(old_id, parent_type, parent_id, …)`.
+  - `value → value (different)`: write column, archive old via helper, insert new ref.
+
+**`archive_certification_path`, `archive_curriculum`, `archive_module`** — each calls its respective `_cascade_archive_asset_refs_for_<parent>` helper after the archive UPDATE.
+
+**`request_asset_upload`** — three new mode branches: `module`, `curriculum`, `certification_path`. Body params: `p_module_id`, `p_curriculum_id`, `p_certification_path_id` (all uuid DEFAULT NULL). Exactly one of the five parent IDs may be non-null (or all five null with `is_library_asset=true`). For the three new modes, `ref_field` is currently restricted to `'thumbnail'` only — future parent-scoped ref_fields (banner, social_card) require explicit allowlisting. Thumbnail uploads (in any of the four parent modes) must have `p_asset_kind='image'`.
+
+### Path conventions (storage.objects)
+
+- Module thumbnail: `module/<module_id>/<asset_id>.<ext>`
+- Curriculum thumbnail: `curriculum/<curriculum_id>/<asset_id>.<ext>`
+- Cert path thumbnail: `certification_path/<certification_path_id>/<asset_id>.<ext>`
+
+Existing paths unchanged: content_item-scoped `<content_item_id>/<asset_id>.<ext>`, lesson_block-scoped `<content_item_id>/<lesson_block_id>/<asset_id>.<ext>`, library `library/<asset_id>.<ext>`. The new prefixes (`module/`, `curriculum/`, `certification_path/`) start from the bucket root.
+
+### Edge Function
+
+**`request-asset-upload` v1 → v2** — body schema gains `module_id`, `curriculum_id`, `certification_path_id` (all optional strings). Forwards them to the RPC as named params. v1 callers (omitting the new fields) keep working.
+
+### Frontend integration (Lovable, SHIPPED Session 59)
+
+`FileUploadField` component (`src/components/super-admin/FileUploadField.tsx`) extended with three new optional props: `moduleId`, `curriculumId`, `certificationPathId`. Each editor (`CertPathEditor`, `CurriculumEditor`, `ModuleEditor`, `ContentItemEditor`) gets a thumbnail section as the first field-group in the form body. In create mode the field is disabled with a "Save the X first" hint; in edit mode the FileUploadField is wired to the corresponding parent ID. `thumbnailAssetId` is added to each editor's `isDirty` check (both create-mode and edit-mode branches) and to the useMemo dependency array — without this the Save button stays grayed when only thumbnail changes.
+
+`ContentAuthoring.tsx` tree-navigator Card height fix: `h-[calc(100vh-220px)]` → `h-[calc(100vh-7rem)] self-start`. Initial attempt used `sticky top-4 max-h-[calc(100vh-2rem)]` which did NOT work because the parent `AppLayout` `<main>` element has `overflow-auto`, creating a scroll context that sticky positioning anchors to instead of the viewport. Direct height (subtracting the AppLayout header + main's p-6 top padding + small buffer) is the correct pattern for any sticky-style layout child in this codebase. The `self-start` is required inside CSS grid or the parent grid stretches the child and breaks any height intent.
+
+### Idempotent ref creation pattern (Migrations 7-8, Session 59)
+
+Surfaced during end-to-end verification. The upload-path RPC (`request_asset_upload`) creates an active `content_asset_refs` row at upload time when a parent_id is set. The upsert RPCs initially also unconditionally INSERTed a refs row when `p_thumbnail_asset_id` transitioned NULL → value, creating duplicates.
+
+Two scenarios produce different correct intent:
+- **Fresh upload via FileUploadField:** `request_asset_upload` created the ref. Upsert RPC must write column only.
+- **Library pick via AssetLibraryPicker:** no ref was created server-side (handleLibraryPick only fires `create_asset_ref` for content_item / lesson_block today; new parent types are unhandled there). Upsert RPC MUST create the ref to maintain the invariant.
+
+**Fix:** new private helper `_upsert_thumbnail_ref(p_asset_id, p_parent_type, p_parent_id, p_caller_id)` does idempotent upsert — check for existing active ref matching `(asset_id, parent_id, ref_field='thumbnail')`; skip if exists, insert if not. All four upsert RPCs call this helper instead of unconditional INSERT.
+
+This pattern generalizes: any time a frontend has TWO write paths that might both create the same logical ref (live-during-upload vs deferred-via-save), the server-side ref creator must be idempotent. Standing rule: if there's any possibility of dual-path ref creation, use the existence-check upsert pattern, not unconditional INSERT.
+
+### Verified end-to-end Session 59
+
+All 4 parent entity types tested with thumbnails uploaded + saved + ref state inspected:
+- PTP-Coach (certification_path) — Phil Concern.png uploaded fresh, parent-scoped path `certification_path/<id>/<asset>.png`, 1 active ref
+- PTP VILT 1 (curriculum) — library asset selected via picker, 1 active ref
+- Test Module C (module) — library asset selected, 1 active ref
+- Test Video Item (content_item) — library asset selected, 1 active ref alongside its existing `content_item_video_source` ref
+- Test External Link (content_item) — Phil Concern.png uploaded fresh, 1 active ref
+
+Library reuse confirmed: one library asset (id `f8b13cb2`) is referenced as a thumbnail across 3 entities, another (id `0400f749`) across 2 entities. The "one asset, many references" pattern from §38 is functioning. No duplicate refs anywhere after the idempotent-helper fix.
+
+### Why Option X (parent-scoped) over revised Option Y (library-as-thumbnail)
+
+Cole's call Session 59: library page should not be overloaded with thumbnails that are never reused. Thumbnails go to parent-scoped storage paths and auto-archive when the parent does. Tradeoff accepted: thumbnails cannot be reused across entities without re-upload (Phase 5+ may add a "use existing thumbnail" picker if reuse becomes a common pattern).
+
+### Standing rule: CREATE OR REPLACE overload trap (Session 59)
+
+Surfaced during Migration 4d. When you `CREATE OR REPLACE FUNCTION` an existing function and the new signature has different parameters (even just one added with `DEFAULT NULL`), PostgreSQL creates a NEW overload alongside the original instead of replacing it. Existing callers using the original named-param shape then hit `42725 "function is not unique"` because two candidates match.
+
+**Fix**: in the same migration that amends the function, explicitly `DROP FUNCTION public.<name>(<exact old arg types>)` to remove the legacy overload. Verify via `pg_get_function_identity_arguments` that only one signature remains.
+
+Pattern applies to ALL future RPC amendments that add params. The Session 58 amendments (e.g. `archive_content_item` cascade additions) escaped this because they did not change the arg list.
+
+### Action types
+
+No new action types this session. Thumbnail changes are captured by the existing `<entity>_updated` action_type via the upsert RPC's existing `log_super_admin_action` call. The cascade archive logs `asset_archived` with `trigger = 'thumbnail_cascade_from_<reason>'` for traceability.
+
+### Storage / cleanup characteristics
+
+- Removing a thumbnail (NULL → set, then clear) auto-archives the asset (non-library, zero refs). Soft-archive flows through the existing §38 sweep: 15-day grace before ZIP+email, 7-day grace after email, then hard-delete. Total recovery window 22 days.
+- Archiving a parent entity cascade-archives the thumbnail ref via the parent's cascade helper; the asset auto-archives at zero refs through the same path.
+- Replacing a thumbnail (set → different value) archives the old asset and starts the old asset's 22-day recovery window. The new asset is active immediately.

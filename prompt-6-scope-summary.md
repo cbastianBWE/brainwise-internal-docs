@@ -45,8 +45,19 @@ No AI integration. Authors can manually build full lessons.
 - LessonBlocksEditor page shell at `/super-admin/content-authoring/lessons/:contentItemId`
 - Header: lesson title (read-only, fetched from content_items), Save button, Back to ContentAuthoring link
 - Left pane (BlockListPane):
-  - Vertical list of compact block cards. Each card: block_type icon + first ~50 chars of content + drag handle
-  - Selected card has highlighted border
+  - Vertical list of compact block cards with type-aware previews:
+    - Text block: block_type icon + first 2 lines of prose
+    - Heading block: icon + full heading text (usually short)
+    - Image block: icon + small 40×40 thumbnail + filename
+    - Video embed block: icon + small thumbnail + title
+    - Callout block: icon + variant-color stripe on left edge + first line
+    - List block: icon + "List (N items)" summary
+    - Quote block: icon + first line of quote + attribution line
+    - Audio embed block: icon + filename + duration if known
+    - Divider block: icon only (it's just a divider)
+  - When a block has both a text body and an asset, prioritize asset thumbnail with text caption smaller underneath
+  - Drag handle on the left of every card, trash icon on the right
+  - Selected card has highlighted border + slight background tint
   - Click selects (no double-click behavior)
   - Inline "+ Add block" button between every pair of cards (including before-first and after-last). Click opens a small popover with 9 block-type options
   - Drag-and-drop reorder using `@dnd-kit/core` + `@dnd-kit/sortable`
@@ -78,6 +89,42 @@ No AI integration. Authors can manually build full lessons.
 - AI authoring (deferred to 6a-AI)
 - Trainee-side renderer (Phase 5 work, separate prompt)
 - AI draft helpers for parent content_item description / title (Prompt 6.5 or later)
+
+### Auto-save + draft/commit pattern (locked Session 59)
+
+Authors don't lose work between manual Saves. Auto-save persists to a separate draft table; manual Save is the only path that writes to canonical lesson_blocks.
+
+**SOC 2 posture:** drafts are explicitly outside the audit boundary. Canonical lesson_blocks changes only via `replace_lesson_blocks` (one audit row per commit, unchanged from existing pattern). When asked "where are work-in-progress edits?" the answer is "in `lesson_block_drafts`, not audit-logged because they're not canonical changes."
+
+**Backend additions (Prompt 6a backend):**
+- New table `lesson_block_drafts`: content_item_id uuid (PK), author_id uuid, draft_json jsonb, updated_at. One draft per (content_item, author).
+- RLS: super admins read/write only their own draft rows
+- New RPC `save_lesson_block_draft(p_content_item_id, p_draft_json)` — no reason field, no audit log
+- New RPC `discard_lesson_block_draft(p_content_item_id)` — deletes the draft row
+- `replace_lesson_blocks` extended (or wrapper added) to delete the matching draft row on successful commit. Match by (content_item_id, author=caller).
+
+**Frontend flow:**
+- Auto-save: debounced ~3 seconds after author stops typing. Calls `save_lesson_block_draft`. Silent. Failure shows a non-blocking toast.
+- Load: on editor open, check for an existing draft for (content_item, current author). If found, show a banner: "You have an unsaved draft from <timestamp>. Resume / Discard?" Resume loads the draft into editor state; Discard calls `discard_lesson_block_draft` and loads canonical state.
+- Manual Save (existing flow): author hits Save with reason → `replace_lesson_blocks` runs → draft row deleted server-side → one audit row written.
+- Navigation away with isDirty (Question 5 outcome): confirm dialog "You have draft changes that haven't been committed yet. Stay / Discard." Discard calls `discard_lesson_block_draft` before navigating. Stay returns to editor with draft loaded.
+- Browser tab close with isDirty: `window.beforeunload` set to true while isDirty, removed on commit.
+
+### Orphan asset cleanup (locked Session 59)
+
+Authors might upload assets to blocks they later delete in-session, or upload then close the tab without saving. Storage shouldn't accumulate dead assets.
+
+**Two-mechanism design:**
+
+1. **Server-side atomic cleanup at Save (existing — verify).** `replace_lesson_blocks` is already atomic-replace per Session 58: archives all current active blocks, inserts the new array, and the cascade helper `_cascade_archive_asset_refs_for_lesson_blocks` archives refs pointing at blocks that no longer exist. Any non-library asset with zero remaining refs auto-archives. Need to verify before 6a backend that this fires correctly for the save-without-the-block case (block was in initial load with asset ref → block removed from editor → Save → block ref archived → asset auto-archived if no other refs).
+
+2. **Server-side sweep for tab-close / abandonment (new — extend existing cron).** Extend `reap_pending_uploads_hourly` cron with a second sweep clause: find `content_assets` where `is_library_asset = false` AND `status = 'active'` AND all active refs point exclusively to `lesson_block_id` values not in `lesson_blocks` (or `lesson_block_id` is in archived blocks with `archived_at < threshold`). Threshold: 24 hours from asset creation. Archive these via `_archive_asset_internal` so they enter the standard 22-day soft-delete recovery window.
+
+**What's NOT in the cleanup design:**
+- No per-block-delete frontend RPC calls (Orphan-2 rejected — too much frontend complexity for marginal benefit; the two backend mechanisms cover all real cases).
+- No live tracking of "which assets did this editor session upload that haven't been committed yet" — server figures it out from ref state.
+
+**Risk acknowledged:** an asset uploaded, used in a draft (auto-saved to `lesson_block_drafts`), then never committed will be archived by the sweep after 24 hours. This is acceptable: the draft still references the asset_id, but the asset is in 22-day recovery, and an author returning after 24+ hours to a draft will see broken asset references but the editor can show a "this asset was archived; re-upload?" message. Better to recover storage than retain dead assets indefinitely.
 
 ---
 
