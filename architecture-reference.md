@@ -1,5 +1,10 @@
 # BrainWise System Architecture Reference
 
+*v58 - Session 58 CLOSE (§38 added: Prompt 5.6 native asset upload infrastructure — buckets, schema, RPC catalog, Edge Functions, cron schedule, helper functions, two-step browser-direct upload protocol, Pattern C reads decision. §39 added: storage.objects RLS for super-admin TUS uploads — the supplementary migration prompt_5_6_1_super_admin_storage_rls_for_tus added 4 super-admin policies (INSERT, SELECT, UPDATE, DELETE) on storage.objects scoped to bucket_id='lesson-assets' with NOT public.is_impersonating() guards on writes. Required because TUS resumable uploads at /storage/v1/upload/resumable authenticate via Authorization: Bearer <user JWT>, not via signed-upload-tokens. The x-signature header path uses a different signature format (verifyObjectSignature) and would have required an undocumented /upload/resumable/sign endpoint. Using user JWT with RLS gates is cleaner, follows the canonical Supabase docs example, and the audit/registry chain still goes through the Edge Function. The service_role-ALL policy stays in place for sweep cron access.)*
+
+*v57 - Session 58 INTERIM (Never pushed to GitHub. Content folded into v58.)*
+
+
 *v56 - Session 57 CLOSE (§35 added: Edge Function auth pattern locked after draft-text v1-v5 debugging cycle. Three rules: (1) supabase-js must be imported as `npm:@supabase/supabase-js@2.57.2` NOT `https://esm.sh/@supabase/supabase-js@2.45.0` — esm.sh@2.45.0 lacks `auth.getClaims()`; (2) JWT verification uses `userClient.auth.getClaims(token)` with explicit token arg, called against an anon-key client (no Authorization header injection on that client); (3) `log_super_admin_action` RPC must be called via the caller's auth-bound anon+Bearer client, NOT the service client — the RPC raises 42501 when `auth.uid()` IS NULL and service role bypasses auth. Same fixes deployed to draft-lesson-block v2 and scaffold-lesson v2. §36 added: ContentAuthoring editor file structure post-Prompt-5.5. ContentAuthoring.tsx now 802 lines as tree+state shell; editors live at src/pages/super-admin/editors/{CertPathEditor.tsx, CurriculumEditor.tsx, ModuleEditor.tsx, ContentItemEditor.tsx, _shared.tsx}. _shared.tsx houses constants, NodeType/TreeNode types, ItemTypeIcon/NodeTypeIcon components, slugify helper. Prompt 6 builds LessonBlocksEditor.tsx in this same editors/ directory from inception. §37 added: content_items RPC bug pattern. upsert_content_item v1 had per-type default-values applied unconditionally in the INSERT/UPDATE block, violating per-type CHECK constraints on cross-type rows. Fix: any COALESCE(<type-specific>, <default>) must live inside the WHEN '<type>' branch of the CASE statement, not in the shared INSERT clause. Pattern applies to any future RPC that updates rows with per-type fields gated by per-type CHECK constraints.)*
 
 *v55 - Session 56 IN-PROGRESS (§33 and §34 added: standing patterns from Prompts 3.1-3.4 cycle. §33 covers PostgREST FK-disambiguation in embedded selects — when a child table has multiple FKs to the same parent, embedded selects MUST use `!<column_name>` syntax or return silently-null rows. Discovered Session 56 in AttachedCurriculaSection; one-line fix in Prompt 3.3. Standing recon protocol added for Prompts 4+: enumerate FKs on every join table before writing embeds. §34 covers content authoring tree's "All <type>" sections — Prompt 3.4 renamed Standalone → All, removed attachment-status filters, added selection-ancestor auto-expand via reverse-lookup Maps for cu and mo nodes. Same curriculum now appears in both hierarchical and flat sections, selection state shared via nodeKey. Forward-compat notes for Prompts 4-5 included.)*
@@ -2513,3 +2518,184 @@ Selection only ADDS to `expanded`; manual collapse via chevron remains a separat
 When Module editor lands (Prompt 4), the existing tree logic already shows all modules in "All Modules" regardless of attachment status. Module-curriculum attachment writes will need to invalidate analogous AttachedModulesSection caches (when that section is built), and `cm_links` reverse-lookup is already built into the parent component's `curriculaByModule` Map.
 
 When Content Item editor lands (Prompt 5), content items don't appear in the tree top-level sections (they're always under their parent module). So no "All Content Items" section. Tree depth caps at 4 levels: cp → cu → mo → ci.
+
+## 38. Prompt 5.6 native asset upload infrastructure (Session 58)
+
+### Buckets
+
+- **`lesson-assets`** — super-admin authored media (images, videos, audio, documents). Private bucket, `file_size_limit = 5 GB`, 18 MIME types allowed. service_role-ALL policy on storage.objects + four super-admin policies (added §39).
+- **`asset-archives`** — daily ZIP backups of soft-archived assets before hard-delete. Private, ZIP-only MIME, service_role-only.
+
+### Tables
+
+**`content_assets`** — asset identity row, one per logical asset.
+- `id` PK, `asset_kind` (image/video/audio/document), `status` (pending/active/archived)
+- `current_version_id` FK to `content_asset_versions(id)` (DEFERRABLE INITIALLY DEFERRED for circular-FK insert)
+- `is_library_asset` boolean + `library_name` text + `library_tags` text[]
+- `uploaded_by`, `created_at`, `updated_at`, `updated_by`
+- `archived_at`, `archive_reason` (content_item_archived / lesson_block_replaced / replaced_by_author / manual_archive / orphaned_pending_expired)
+- `archive_email_sent_at` (stamped by the sweep Edge Function after ZIP+email)
+
+**`content_asset_versions`** — actual bytes + per-version metadata.
+- `id` PK, `asset_id` FK ON DELETE RESTRICT, `version_number` (integer > 0)
+- `bucket` (default `lesson-assets`), `path`, `mime_type`, `size_bytes` (> 0), `original_filename`
+- `generation_provenance` jsonb (null for human upload, populated for Phase 4.5a/b/c AI-generated assets)
+- `uploaded_by`, `created_at`, `archived_at`
+- UNIQUE (bucket, path); UNIQUE (asset_id, version_number).
+
+**`content_asset_refs`** — usage join table.
+- `id` PK, `asset_id` FK, `content_item_id` OR `lesson_block_id` (exactly one via CHECK), `ref_field` text
+- `created_at`, `created_by`, `archived_at`
+
+### Path conventions
+
+- Content-item-scoped: `<content_item_id>/<asset_id>.<ext>`
+- Lesson-block-scoped: `<content_item_id>/<lesson_block_id>/<asset_id>.<ext>`
+- Library-only: `library/<asset_id>.<ext>`
+- New version of library asset: `library/<asset_id>__v<N>.<ext>`
+
+### Per-asset_kind ceilings
+
+| asset_kind | Size ceiling | MIME allowlist |
+|---|---|---|
+| image | 20 MB | jpeg, png, webp, gif, svg+xml, avif |
+| video | 5 GB | mp4, webm, quicktime |
+| audio | 100 MB | mpeg, wav, webm, ogg, mp4 |
+| document | 50 MB | pdf, docx, xlsx, pptx |
+
+### Action types (10 new under `category = 'content_authoring'`)
+
+`asset_uploaded`, `asset_upload_failed`, `asset_replaced`, `asset_archived`, `asset_ref_created`, `asset_ref_archived`, `library_asset_promoted` (denylist_during_impersonation = true), `asset_sweep_completed`, `asset_archive_email_sent`, `asset_hard_deleted` (these three system actions are denylist_during_impersonation = false).
+
+### Core RPCs
+
+| RPC | Purpose |
+|---|---|
+| `request_asset_upload` | Pre-upload validation + registry creation. Mode dispatch (content_item / lesson_block / library_only). Returns `{asset_id, version_id, bucket, path, signed_upload_url, upload_token, mode}`. |
+| `finalize_asset_upload` | Post-byte-upload activation. Verifies storage.objects row at expected path with expected size. Success: flip pending→active, audit `asset_uploaded`. Failure: archive registry + audit `asset_upload_failed`, return `{success: false}` (NOT raise — RAISE rolls back side-effect updates). Edge Function translates to HTTP 422. |
+| `create_asset_ref` | Link an existing active asset to an additional location. Audit `asset_ref_created`. |
+| `archive_asset_ref` | Soft-delete a single ref. Auto-archives the underlying asset if non-library AND zero active refs remain. |
+| `promote_to_library` | Flip `is_library_asset=true` on active asset. |
+| `request_new_asset_version` | Library-only. Creates new version row without flipping `current_version_id`. |
+| `finalize_new_asset_version` | Library-only. Verifies new version's storage object, flips `current_version_id`. |
+| `replace_asset` | Non-library only. Atomic: re-point all active refs from old to new, archive old asset. |
+| `archive_asset_manual` | Explicit archive. Requires zero active refs OR `force=true`. |
+
+### Amended RPCs
+
+**`archive_content_item`** — now calls `_cascade_archive_asset_refs_for_content_item` after content_item archive, which archives all `content_asset_refs` pointing to the content_item OR to any of its `lesson_blocks`, then auto-archives non-library assets whose ref count drops to zero.
+
+**`replace_lesson_blocks`** — does two new things:
+1. **Outgoing cascade**: collects outgoing `lesson_block` IDs before archiving them, calls `_cascade_archive_asset_refs_for_lesson_blocks`.
+2. **Incoming asset_ref creation**: each new lesson_block whose `config` includes `asset_id` (UUID string) gets a new `content_asset_refs` row with `ref_field = '<block_type>_asset'`. Validates the referenced asset exists and is active BEFORE any mutation.
+
+LessonBlocksEditor (Prompt 6) MUST follow the `config.asset_id` convention.
+
+### Sweep infrastructure
+
+- **`reap_pending_uploads()`** — hourly cron `7 * * * *`. Archives pending assets >24h old.
+- **`get_assets_due_for_archive_email()`** — STABLE. Returns archived assets >15 days old where `archive_email_sent_at IS NULL` and `archive_reason <> 'orphaned_pending_expired'`. GRANTED to service_role.
+- **`mark_archive_email_sent`** — stamps the batch + writes two audit rows (`asset_archive_email_sent`, `asset_sweep_completed`).
+- **`run_asset_hard_delete()`** — daily cron `0 5 * * *`. Hard-deletes assets where `archive_email_sent_at <= now() - 7 days` OR orphans where `archived_at <= now() - 7 days`.
+
+### Edge Functions deployed Session 58
+
+| Function | Auth | Purpose |
+|---|---|---|
+| `request-asset-upload` v1 | Class A (getClaims JWT) | RPC + signed upload URL via service client. `verify_jwt: false` (we verify via getClaims). |
+| `finalize-asset-upload` v2 | Class A | v1 used RAISE EXCEPTION (rolled back side-effects). v2 RPC returns `{success: false}`; Edge Function returns HTTP 422 on failure. |
+| `run-asset-archive-sweep` v1 | Class C (X-Dispatcher-Secret) | Daily 04:30 UTC. ZIP via npm:jszip@3.10.1, invokes send-email via INTERNAL_FUNCTION_SECRET, recipient cbastian@brainwiseenterprises.com. |
+
+### pg_cron schedule additions
+
+- `reap_pending_uploads_hourly` — `7 * * * *` — SQL-direct
+- `run_asset_archive_sweep_daily` — `30 4 * * *` — net.http_post to Edge Function with X-Dispatcher-Secret from vault
+- `run_asset_hard_delete_daily` — `0 5 * * *` — SQL-direct
+
+### Two-step browser-direct upload protocol
+
+1. POST to `/functions/v1/request-asset-upload` with file metadata + reason
+2. Receive `{signed_upload_url, upload_token, bucket, path, asset_id, ...}`
+3. Browser uploads bytes directly via TUS resumable to `<project>.storage.supabase.co/storage/v1/upload/resumable` (NOT through Edge Function)
+4. POST to `/functions/v1/finalize-asset-upload` with `{asset_id, reason}`
+5. On 422: registry archived by RPC; surface "upload didn't complete" to user.
+
+**TUS configuration locked Session 58 (Prompts 5.6.1 + 5.6.2):**
+- Endpoint: direct storage hostname `https://<project>.storage.supabase.co/storage/v1/upload/resumable`
+- Auth: `Authorization: Bearer <user session JWT>` (NOT x-signature header — see §39)
+- chunkSize: 6 MB (required minimum for Supabase TUS)
+- uploadDataDuringCreation: true
+- removeFingerprintOnSuccess: true
+- 1-hour signed URL expiry for inline previews; 60-min expiry for trainee Pattern C reads
+
+### Read pattern (Pattern C — bulk URL signing at lesson-fetch time)
+
+Locked Session 58: when the trainee learning UI fetches a lesson, the lesson-fetch endpoint (Phase 5 future work) signs all asset URLs in the lesson_blocks payload with 60-minute expiry and returns them in the response. Frontend uses signed URLs directly; no per-asset Edge Function hit on render.
+
+Trade-off accepted: a leaked URL within 60 minutes is reachable without enrollment recheck. Mitigated by short expiry, lesson-level enrollment audit, and the architectural option to promote to per-asset Edge Function reads later.
+
+### SOC 2 posture
+
+- Every super-admin mutation has a `super_admin_audit_log` row with reason text ≥ 10 chars.
+- Three system actions (`asset_sweep_completed`, `asset_archive_email_sent`, `asset_hard_deleted`) are `requires_justification = false`.
+- Authorization at three layers: RPC `assert_*` calls, RLS WITH CHECK with `is_impersonating()`, Edge Function explicit super_admin lookup.
+- 22-day total recovery window (15 days soft-archive + 7-day post-email grace).
+- ZIP backup emailed before hard-delete creates an external-of-Supabase backup point.
+
+### Asset library semantics
+
+- Library assets: `is_library_asset=true`, path `library/<asset_id>.<ext>`. Never auto-archived.
+- Library versioning: `request_new_asset_version` / `finalize_new_asset_version`; updates propagate because refs point to asset_id.
+- Non-library assets: exactly one version; replacement via `replace_asset`.
+
+### Frontend preview integration (Prompt 5.6.3)
+
+The `<FileUploadField>` component renders inline previews for the four asset_kinds:
+- **Image**: signed URL → `<img>` with `aspect-video object-cover`.
+- **Video**: signed URL → HTML5 `<video controls preload="metadata">` in `aspect-video bg-black` container. Browser handles poster frame.
+- **Audio**: signed URL → HTML5 `<audio controls preload="metadata">` below the Music icon on sand-tone card.
+- **Document**: 
+  - PDF: signed URL → inline `<iframe>` at 600px height (browser's native PDF viewer)
+  - DOCX/XLSX/PPTX: "Open in new tab" button only (browsers cannot render Office docs natively)
+  - All document kinds: per-extension icon (`FileText`, `FileSpreadsheet`, `Presentation`) + "Open in new tab" button as fallback affordance.
+
+Signed URL expiry for previews: 3600s (1 hour) — covers typical authoring sessions without re-signing.
+
+### Open follow-ups
+
+- Lesson-fetch endpoint (Phase 5) needs to bulk-sign asset URLs from lesson_blocks `config.asset_id` + content_items `video_source_id` (when `video_source_type='supabase_storage'`).
+- Verify Edge Function env vars in Supabase Dashboard: `DISPATCHER_SHARED_SECRET` (verified live), `INTERNAL_FUNCTION_SECRET` (not yet exercised — first sweep with real bytes will validate).
+- Phase 5 lesson-fetch must NOT sign URLs for archived asset versions; the `content_asset_versions_trainee_read` RLS policy enforces "current version only" via `ca.current_version_id = content_asset_versions.id` predicate.
+
+## 39. storage.objects RLS for super-admin TUS uploads (Session 58)
+
+Supplementary migration `prompt_5_6_1_super_admin_storage_rls_for_tus` added four super-admin policies on `storage.objects` for `bucket_id = 'lesson-assets'`. The existing `lesson_assets_service_role_all` policy stays in place for sweep cron access.
+
+| Policy | Cmd | Role | Predicate |
+|---|---|---|---|
+| `lesson_assets_super_admin_insert` | INSERT | authenticated | bucket_id='lesson-assets' AND user is super admin AND NOT is_impersonating() |
+| `lesson_assets_super_admin_select` | SELECT | authenticated | bucket_id='lesson-assets' AND user is super admin |
+| `lesson_assets_super_admin_update` | UPDATE | authenticated | (USING + WITH CHECK) bucket_id='lesson-assets' AND user is super admin AND NOT is_impersonating() |
+| `lesson_assets_super_admin_delete` | DELETE | authenticated | bucket_id='lesson-assets' AND user is super admin AND NOT is_impersonating() |
+
+### Why this was needed
+
+The TUS resumable upload endpoint at `https://<project>.storage.supabase.co/storage/v1/upload/resumable` authenticates via the standard `Authorization: Bearer <JWT>` header — verified by Supabase's auth subsystem against the user's session JWT. RLS on `storage.objects` then gates the actual INSERT/UPDATE.
+
+The alternative auth path (signed upload tokens via `x-signature` header) attempted in Prompt 5.6.1 failed with `403 Invalid Compact JWS` because the TUS server's lifecycle hook calls `storage.verifyObjectSignature()` (NOT JWT verification), and the token returned by `createSignedUploadUrl` is a JWT-format token, not a `verifyObjectSignature`-compatible signed-object-token. The `verifyObjectSignature` path requires an undocumented `/upload/resumable/sign` endpoint suffix per the storage codebase, but the canonical Supabase docs use the `Bearer JWT` pattern instead.
+
+### Why this is still safe
+
+- Registry creation goes through the `request-asset-upload` Edge Function which enforces super_admin + impersonation gate via `assert_impersonation_allows`.
+- Audit trail is enforced at the RPC layer, not at the Storage layer.
+- RLS predicates on `storage.objects` mirror the RPC's super_admin + impersonation gate.
+- The narrow scope (bucket_id='lesson-assets' only) prevents these policies from affecting other buckets.
+- Service-role policy stays in place for sweep cron, which needs to download bytes server-side.
+
+### Project-level Storage upload limit
+
+Independent of bucket and RLS configuration, Supabase has two project-level upload size caps:
+- `UPLOAD_FILE_SIZE_LIMIT` (global): the absolute project ceiling for all upload methods (TUS, standard, S3-compatible).
+- `UPLOAD_FILE_SIZE_LIMIT_STANDARD`: a separate, tighter cap for standard PUT uploads.
+
+Both must be raised in the Supabase Dashboard to allow uploads above the defaults. Session 58 raised the global limit to 5 GB to match the bucket's `file_size_limit`. The standard limit is unset (defaults to ~50 MB) — irrelevant for our TUS-based uploads but a footgun if anyone tries non-TUS uploads later.
