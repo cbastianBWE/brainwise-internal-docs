@@ -2,6 +2,8 @@
 
 **Origin**: Session 65, Priority 1. Backend schema landed; trainee-facing behavior deferred to Phase 5 because the trainee renderer doesn't yet exist.
 
+**Reconciliation note**: Originally drafted at Session 65 mid (when only three of the four v1 interactive block types had been designed — flashcards, scenario, knowledge_check — and several details about each were still unsettled). Updated at Session 65 CLOSE to reflect the locked v1 interactive block list of four types (adds card_sort), the corrected per-block-type completion_data shapes (scenario is LINEAR not branching, knowledge_check has 7 question types per block not single question, flashcards uses Got-it/Review-again self-rating not flipped/known), and the three new standing rules added at close (§69 plain-text choice cards, §70 knowledge_check-vs-quiz boundary, §71 nested-asset-ref walker pattern). Sections that didn't change in the locked design (the schema contract from Migration A + Migration B, the RPCs Phase 5 will add, the trainee renderer sub-section grouping + reveal-state derivation + Continue-click handler + gating evaluator, the 5 open questions) are unchanged from the Session 65 mid draft.
+
 **What this doc is**: a single source of truth for everything the Continue-button + lesson-progress design committed to but couldn't ship in Session 65. When Phase 5 begins, read this first — it captures locked design decisions, schema contracts, and open questions so nothing has to be re-derived.
 
 **What this doc is NOT**: a build queue. The actual sequencing of Phase 5 work belongs in build-queue.md. This doc is just the "what was decided and why" reference.
@@ -17,7 +19,7 @@ The Continue button is a `button_stack` button with `action_type: "continue"`. A
 3. Show only the sub-sections the trainee has revealed (up to `lesson_furthest_continue_client_id`)
 4. Enable/disable each Continue button based on gating policy
 5. On Continue click: reveal the next sub-section, write progress to DB, scroll to it
-6. Track per-block completion for interactive blocks (flashcards / knowledge_check / scenario)
+6. Track per-block completion for interactive blocks (flashcards / card_sort / scenario / knowledge_check)
 7. Allow free back-and-forth navigation between already-revealed sub-sections
 
 The schema is ready for all of this. The renderer is not built.
@@ -69,24 +71,27 @@ CREATE TABLE lesson_block_progress (
 
 Indexes: PK, UNIQUE(completion_id, block_id, attempt_number), idx_user_item_attempt(user_id, content_item_id, attempt_number), idx_block(block_id), idx_completed partial WHERE completed_at IS NOT NULL.
 
-**Who writes here**: only interactive block types. Confirmed list: `flashcards`, `knowledge_check`, `scenario`. Future interactive types added in later phases will join this list.
+**Who writes here**: only interactive block types. Confirmed v1 list (locked Session 65 close): `flashcards`, `card_sort`, `scenario`, `knowledge_check`. Future interactive types added in later phases will join this list. (Note: in Session 65 the schema shipped before all four block types were fully designed — the original carry-forward listed only three. The full v1 list is now four after the Session 65 design lock conversation; the schema accommodates the addition without changes.)
 
-**Who does NOT write here**: every other block type. Text/heading/callout/accordion/tabs/button_stack/stat_callout/statement_a_b/list/quote/divider/image/video_embed/embed_audio do not produce rows. Their "completion" is implicit (rendered = seen).
+**Who does NOT write here**: every other block type — text, heading, callout, accordion, tabs, button_stack, stat_callout, statement_a_b, list, quote, divider, image, video_embed, embed_audio. Their "completion" is implicit (rendered = seen).
 
 **`attempt_number` semantics**:
 - Denormalized copy of `content_item_completions.attempts_count` at the time the row was written.
 - On re-attempt, application increments `attempts_count` on `content_item_completions`, then writes new `lesson_block_progress` rows with the new `attempt_number`. Prior rows retained for history/audit.
 - Querying "current attempt's block progress" requires `WHERE attempt_number = (SELECT attempts_count FROM content_item_completions WHERE id = ...)`. This will be common enough to consider wrapping in an RPC.
 
-**`completion_data jsonb` per-block-type shapes** (locked at design time, not yet implemented anywhere):
+**`completion_data jsonb` per-block-type shapes** (locked Session 65 close — these are the v1 shapes the trainee renderer in Phase 5 will read and write):
 
 | Block type | completion_data shape |
 |---|---|
-| flashcards | `{"cards_flipped": ["c1","c2","c3"], "marked_known": ["c1"]}` (client_ids of flipped/known cards) |
-| knowledge_check | `{"answer_index": 2, "is_correct": true, "score_pct": 100}` |
-| scenario | `{"path_taken": ["node_a","node_c"], "resolution_id": "node_c"}` |
+| flashcards | `{"cards_completed": ["c1","c2","c3", ...], "cards_review_count": {"c1": 0, "c2": 2, ...}}` — `cards_completed` is the list of card client_ids the trainee marked "Got it" (the completion criterion is every card in this list). `cards_review_count` is per-card count of how many times the trainee chose "Review again" before settling on "Got it" — useful for analytics. |
+| card_sort | `{"final_score_pct": 100, "attempts_count": N, "incorrect_cards_history": [{"attempt": 1, "card_ids": [...]}, {"attempt": 2, "card_ids": [...]}, ...]}` — `final_score_pct` is always 100 at completion (completion criterion is 100% correct after any number of retries). `attempts_count` is how many "Check my answers" rounds it took. `incorrect_cards_history` retains which cards were misplaced on each attempt for analytics and revisit-pattern study. |
+| scenario | `{"moments_submitted": {"<moment_client_id1>": {"type": "mc", "choice_id": "<choice_client_id>"}, "<moment_client_id2>": {"type": "reflection", "text": "<trainee's response, max 2000 chars>"}, ...}}` — one entry per moment; type discriminates MC vs reflection. For MC moments, `choice_id` is the client_id of the choice the trainee picked. For reflection moments, `text` is the trainee's submitted response. Scenarios are LINEAR (not branching) — there is no `path_taken`; all moments in the scenario are visited in order and each gets exactly one entry here. |
+| knowledge_check | `{"answered": {"<question_client_id1>": {"type": "mc", "selected": ["<choice_id>"], "attempts": 1}, "<question_client_id2>": {"type": "fitb", "filled": {"blank_0": "value", "blank_1": "value"}, "attempts": 3}, ...}}` — one entry per question (1-5 per block). `type` discriminates which of the 7 question types this is (`"mc"`, `"multi_select"`, `"true_false"`, `"fitb"`, `"match"`, `"ranking"`, `"timeline"`). The shape of the trainee's response varies by type: MC/multi-select/true-false use `selected: ["choice_id", ...]`; FITB uses `filled: {"blank_0": "...", ...}`; match uses `pairs: {"<left_id>": "<right_id>", ...}`; ranking uses `order: ["<item_id>", ...]`; timeline uses `placements: {"<event_id>": position_index, ...}`. `attempts` counts how many retries the trainee took before this question was answered correctly. The completion criterion for the block is that every question is answered correctly eventually (`attempts >= 1` and the final response is correct). |
 
-These shapes are **proposals from design discussion**, not commitments. Phase 5 may refine them when the actual interactive blocks ship in Prompt 6c. If you change a shape, document the migration of any existing rows (likely none until Phase 5 starts writing).
+**Note on shape stability**: These four shapes are the locked v1 design from Session 65 close. They differ from the proposals that were drafted at Session 65 mid (when only three of the four block types had been designed and several details — like the self-rating model for flashcards and the linear-not-branching shape for scenario — were unsettled). The shapes above replace those proposals.
+
+**Locked design note on knowledge_check**: knowledge_check is the only v1 interactive block type with `gating_required` defaulting to **`true`**. The other three (flashcards, card_sort, scenario) default to `false`. Authors can toggle per-block in the form (see §4). This default reflects the intended pedagogy: knowledge_check is a check-for-understanding that should gate progression by default; the other three are learning-tools that augment understanding without policing it. Quiz (a future content_item type, NOT a block — see new architecture-reference §70) is the high-stakes assessment surface that will reuse knowledge_check's 7 question types with scoring thresholds added on top.
 
 ### 1.3 RLS policies (shipped Session 65)
 
@@ -212,7 +217,7 @@ If sub-section N+1 doesn't exist (Continue button is in the last sub-section): t
 When `button.gating_mode === 'require_all_interactive_above'`:
 
 1. Find all blocks in sub-section N (the one being ended by this Continue button).
-2. Filter to blocks where `block.config.gating_required === true`. (Per the locked design: `gating_required` defaults to `true` for knowledge_check, `false` for flashcards/scenario. Author can override per block in the form.)
+2. Filter to blocks where `block.config.gating_required === true`. (Per the locked design: `gating_required` defaults to `true` for knowledge_check, and `false` for flashcards / card_sort / scenario. Author can override per block in the form.)
 3. For each such block, look up its current-attempt `lesson_block_progress` row.
 4. If every required block has `status === 'completed'`, enable the Continue button. Otherwise disable it.
 
@@ -234,10 +239,10 @@ The last sub-section has no terminal Continue button, so its title falls back to
 
 ### 3.6 Block-level interactions
 
-For interactive blocks (flashcards, knowledge_check, scenario): each block's renderer is responsible for:
+For interactive blocks (flashcards, card_sort, scenario, knowledge_check): each block's renderer is responsible for:
 
 1. Reading its own current state from `lesson_block_progress` on mount (filtered to current `attempt_number`).
-2. Rendering UI controls (flip cards, answer questions, choose scenario paths).
+2. Rendering UI controls (flip cards, drag cards to buckets, choose scenario moment responses, answer questions across 7 types).
 3. Calling `upsert_lesson_block_progress` when meaningful interactions occur.
 4. Updating its visual state.
 
@@ -245,20 +250,30 @@ The block renderer doesn't need to know about the Continue button or sub-section
 
 **One coordination concern**: when a block transitions from `in_progress` to `completed`, the parent sub-section's Continue button should re-evaluate its disabled state. This means the trainee renderer needs some form of state propagation (React context, query invalidation, etc.) so the Continue button re-renders when a block it depends on completes. Phase 5 picks the mechanism.
 
+**Image rendering for interactive blocks with nested asset refs**: three of the four v1 interactive block types can carry per-element image refs nested inside arrays — `flashcards.cards[N].back_image_asset_id`, `card_sort.cards[N].image_asset_id`, `scenario.moments[N].setup_image_asset_id`. Per §71 added to architecture-reference at Session 65 close, the platform uses a new `_walk_block_config_for_asset_refs` PL/pgSQL helper (designed for Session 66 backend work) and a reworked `get_lesson_block_assets` function to surface these asset_ids and their signed URLs. The trainee renderer for these blocks must:
+
+1. Call `get_lesson_block_assets(content_item_id)` (or equivalent — Phase 5 picks the call surface; this may be folded into a broader lesson-load RPC). The result includes every active asset referenced by every lesson_block in the content_item, regardless of nesting depth, paired with bucket + path so the renderer can construct signed URLs.
+2. For each interactive block, look up the asset_id values from the block's `config` JSONB at the nested paths (e.g., for a flashcards block read `block.config.cards[N].back_image_asset_id` for each card N).
+3. Map each asset_id to its signed URL from the get_lesson_block_assets result.
+4. Render the image inside the card / moment.
+
+This is invisible to the per-block renderer's progress logic — the asset resolution happens at lesson-load time, not at interaction time. The renderer just consumes signed URLs that were resolved upstream.
+
 ---
 
 ## 4. `gating_required` flag — interactive block forms
 
 **Where it lives**: in each interactive block's `config` jsonb, as a top-level boolean.
 
-**Defaults** (locked):
+**Defaults** (locked Session 65 close):
 - flashcards: `gating_required: false`
-- knowledge_check: `gating_required: true`
+- card_sort: `gating_required: false`
 - scenario: `gating_required: false`
+- knowledge_check: `gating_required: true`
 
-**Authoring UI**: each of the three interactive block forms (FlashcardsBlockForm, KnowledgeCheckBlockForm, ScenarioBlockForm) needs a checkbox or toggle labeled something like "Require completion to advance" with help text "When checked, the next Continue button in this section will be disabled until the trainee completes this block."
+**Authoring UI**: each of the four interactive block forms (FlashcardsBlockForm, CardSortBlockForm, ScenarioBlockForm, KnowledgeCheckBlockForm) needs a checkbox or toggle labeled something like "Require completion to advance" with help text "When checked, the next Continue button in this section will be disabled until the trainee completes this block."
 
-**Why this is deferred to Prompt 6c and not Session 65's Continue-button prompt**: the three interactive block forms don't exist yet — they ship in Prompt 6c. Adding the `gating_required` field to their config and form is one extra checkbox per form, low marginal cost. Doing it in Session 65 would require pre-creating the forms, which is out of scope.
+**Why this is deferred to Prompt 6c and not Session 65's Continue-button prompt**: the four interactive block forms don't exist yet — they ship in Prompt 6c (split across multiple Lovable prompts per the Session 65→66 handoff: flashcards first, then card_sort, then scenario, then knowledge_check broken into 2-3 question-type-family prompts). Adding the `gating_required` field to each block's config and form is one extra checkbox per form, low marginal cost. Doing it in Session 65 would require pre-creating the forms, which was out of scope.
 
 **Note for Phase 5**: the trainee renderer's gating check (§3.4) reads `config.gating_required` directly. The flag is per-block, not per-block-type — so the trainee renderer needs to check `block.config.gating_required === true`, not "is this block a knowledge_check?". This keeps the policy explicit and author-controlled even when defaults are sensible.
 
@@ -297,7 +312,7 @@ Phase 5 decides whether trainees can re-attempt a lesson, and if so, how. The sc
 
 - No re-attempts. Lesson is one-shot. Trainees who want to re-read just scroll through the already-revealed sub-sections.
 - Re-attempt resets all sub-section reveal state but preserves history. Trainee starts fresh from sub-section 1; previous attempt's `lesson_block_progress` rows stay as audit trail.
-- Re-attempt is per-block, not per-lesson. Trainees can re-do a flashcards block or re-take a knowledge_check without resetting their sub-section progress.
+- Re-attempt is per-block, not per-lesson. Trainees can re-do a flashcards block, re-sort a card_sort block, replay a scenario, or re-take a knowledge_check without resetting their sub-section progress.
 
 These are mutually exclusive. Phase 5 picks.
 
@@ -327,7 +342,7 @@ To validate the trainee renderer end-to-end, Phase 5 will need:
 
 - A test lesson with multiple Continue buttons (at least 3 sub-sections) on test fixture content_item `32e0e966-4cb8-4e8b-abf8-5617de346f59`.
 - At least one Continue button with `section_title` filled, one without.
-- At least one interactive block (knowledge_check or flashcards or scenario, after Prompt 6c ships) with `gating_required: true` in a sub-section that has a Continue button after it.
+- At least one interactive block (flashcards, card_sort, scenario, or knowledge_check, after Prompt 6c ships) with `gating_required: true` in a sub-section that has a Continue button after it.
 - A test trainee user (one of the `testclientbwe+...@gmail.com` accounts) without super_admin privileges, so the trainee path can be tested under realistic auth.
 - A `content_item_completions` row for the test trainee + test lesson — initially with NULL lesson_furthest_continue_client_id to test the "starting state" path.
 
@@ -344,13 +359,16 @@ The following came up in Session 65 design discussion but are explicitly OUT of 
 - **Per-block gating ("pick which specific blocks gate this Continue")**. Out of Model X scope. The current policy is "all `gating_required=true` blocks above." If authors want finer control, that's Model Y and is a future addition.
 - **Lesson-level pacing analytics** (time-on-section, scroll depth, etc.). Not blocked by Session 65 schema, but not designed yet. Phase 6+.
 - **Resume position INSIDE a sub-section.** `lesson_last_block_id` provides "which block was I last viewing." It does NOT provide "scroll position within that block" (e.g., for long text blocks the trainee scrolled halfway through). If that fidelity is needed, add a `lesson_last_block_scroll_offset` column. Probably overkill.
+- **Nested asset-ref backend rework.** The `_walk_block_config_for_asset_refs` PL/pgSQL helper, the rework of `replace_lesson_blocks`, and the rework of `get_lesson_block_assets` to surface signed URLs for images nested inside flashcards.cards / card_sort.cards / scenario.moments arrays are committed Session 66 backend work, NOT Phase 5 work. Phase 5 assumes those functions are already shipped and just CALLS `get_lesson_block_assets(content_item_id)` (or whatever the final read-side surface is) to get a flat list of (asset_id, bucket, path, kind) for every active asset in the content_item's blocks. See architecture-reference §71 for the standing rule and `session-65-to-66.md` for the verbatim backend recon that surfaced this concern.
 
 ---
 
 ## 8. Cross-references
 
-- Build queue v70 (Session 65 mid) — where the schema was logged.
-- Architecture reference v66 (Session 65 mid) — schema definitions + §67 (schema-first recon for progress features) + §68 (re-attempt history preservation pattern).
+- Build queue v71 (Session 65 CLOSE) — Continue button frontend ship + four block type design lock + Session 66 backend queue.
+- Architecture reference v67 (Session 65 CLOSE) — Continue button + design lock + three new standing rules added at close: §69 (plain-text choice cards in scenario and knowledge_check), §70 (knowledge_check vs quiz semantic boundary — quiz is a future content_item type, not a block), §71 (nested-asset-ref walker pattern — `_walk_block_config_for_asset_refs` + indexed-path ref_field naming convention).
+- Architecture reference v66 (Session 65 mid) — `lesson_block_progress` schema definitions + §67 (schema-first recon for progress features) + §68 (re-attempt history preservation pattern).
+- `session-65-to-66.md` — full handoff with backend recon verbatim, four block type spec tables, Session 66 phased sequence.
 - `_template.md` in this repo — session handoff template.
 - Existing reference tables: `content_item_completions`, `quiz_attempts`, `coach_mentor_assignments`. The new schema follows these for RLS, indexes, and constraint patterns.
 
@@ -363,7 +381,7 @@ Before Phase 5 begins lesson-renderer work, the lead should confirm:
 - [ ] All decisions in §5 (open questions) have been resolved or explicitly deferred.
 - [ ] The three RPCs in §2 have been designed in detail (parameter types, return shapes, error handling).
 - [ ] At least one test lesson with multiple Continue buttons exists on the test fixture.
-- [ ] Prompt 6c has shipped flashcards / knowledge_check / scenario, including the `gating_required` flag on each form.
+- [ ] Prompt 6c has shipped all four interactive block types (flashcards / card_sort / scenario / knowledge_check), each including the `gating_required` flag on its authoring form. Per Session 65→66 handoff this is expected to take 4-6 sessions, broken into one Lovable prompt per block type with knowledge_check potentially split further across its 7 question-type families.
 - [ ] The Continue button author UI (Session 65 frontend prompt) has shipped, so test lessons can actually be authored with Continue buttons.
 
 If any are unchecked, the trainee renderer work will hit a blocker that's cheaper to resolve upstream than mid-build.
