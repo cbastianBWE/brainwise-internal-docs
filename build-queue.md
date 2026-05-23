@@ -1381,3 +1381,71 @@ The "Refine with AI" textarea in BlockEditorPane has no mic icon for voice dicta
 **Surfaced Session 69.**
 
 When Cole opens the Lovable preview in a new browser tab (not the in-editor iframe), the page hangs on a spinner indefinitely. The in-editor preview works fine. Likely a Lovable publish/deploy or auth-cookie issue on the standalone preview URL, not application code. Check Lovable publish settings; redeploy may resolve. Not actionable from the Supabase/code side.
+
+---
+
+## Session 90 close — Group C formal closure + Group F/G scoping
+
+**v98 — Group C IS CLOSED.** Phase 10 Round 7 coach surfaces polish FULLY SHIPPED (ClientResults.tsx + CoachInvoices.tsx via Round 7a, CoachClients.tsx via Round 7b). Group C formal closure walkthrough complete against the v1 scope doc (`BrainWise_Group_C_Scope_Coach_Certification_v1.docx`). All 10 build phases DONE. All 13 foundational decisions resolved (Q11 cohorts DEFERRED INDEFINITELY per Session 85 product decision; Q13 post-cert benefit DEFERRED per scope until subscription tiers decided). 13 of 14 v1 notification types live + bonus `results_available` (PTP-only, Session 86); `cert_path_deadline_approaching` correctly DEFERRED to v2 per scope §6. All 9 success criteria met. Build Queue items 31, 32, 33, 35, 37, 38 absorbed and closed. All §6 explicit non-goals correctly out of v1. The certification platform is shippable.
+
+## Build Queue items added Session 90
+
+### Group F items (Session 91 build target)
+
+**[ACTIVE Session 91] Marketing trio + SEO/AEO foundation**
+
+Single-session bundle covering podcast page, EVOLVE→Our Approach rename, and instrument label audit pass. Full scope doc at `docs/scope-group-fg-marketing-newsletter.md`. Five phases F1-F5 documented in §5 of scope doc. Estimated ~3-3.5 hours.
+
+Key deliverables:
+- `src/pages/marketing/Podcast.tsx` + `src/content/marketing/podcastContent.ts` + `/podcast` route + MarketingNav entry
+- `src/pages/marketing/Evolve.tsx` renamed to `OurApproach.tsx`; `src/content/marketing/evolveContent.ts` renamed to `ourApproachContent.ts`; `/evolve` redirected to `/our-approach`; MarketingNav updated
+- `src/lib/instruments.ts` NEW — centralized INSTRUMENTS constants as single source of truth
+- Home.tsx + productsContent.ts + servicesContent.ts + ourApproachContent.ts + Assessment.tsx + CoachClients.tsx all refactored to import from `src/lib/instruments.ts` and corrected against `public.instruments`
+- Instrument label corrections: Home.tsx PTP "Personal Threat & Reward Profile" → "Personal Threat Profile"; Home.tsx NAI "Neuroscience of AI Adoption" → "Neuroscience Adoption Index"; Home.tsx + productsContent AIRSA "48 items"/"48 specific skills" → "24"; Home.tsx HSS "Habit Strength Scale"/"6 items" → "Habit Stabilization Scorecard"/"3 items"; productsContent HSS "6-item check-in" → "3-item"; Services + Assessment EPN labels normalized
+- `react-helmet-async` installed; `<HelmetProvider>` wired; per-page `<Helmet>` blocks on all marketing pages
+- `index.html` twitter:site fixed from `@Lovable` to BrainWise handle
+- Organization JSON-LD on homepage
+- `/public/robots.txt`, `/public/sitemap.xml` (static for marketing), `/public/llms.txt` created
+
+### Group G items (Sessions 92-97 build target)
+
+**[QUEUED Sessions 92-97] Newsletter platform — phased build**
+
+Multi-session foundational build per scope doc §5 Phase G1-G9. Schema, RLS, RPCs, authoring UI, public reader, version history with diff viewer + restore-to-prior-version, subscriber list with double opt-in + unsubscribe, Resend dispatch, podcast schema + authoring + reader, SSR via Edge Function, RSS feed.
+
+Key deliverables:
+- 20 new tables/columns including `newsletter_articles`, `newsletter_article_versions`, `newsletter_subscribers`, `newsletter_dispatches`, `newsletter_categories`, `newsletter_article_categories`, `podcast_episodes`, `podcast_episode_versions`
+- Extension of `content_asset_refs` to 8-way parent (add `newsletter_article_id`, `podcast_episode_id`)
+- 14 new super_admin_action_types per §99
+- Newsletter article authoring UI at `/super-admin/newsletter` + version history tab + diff viewer
+- Podcast episode authoring UI at `/super-admin/podcast`
+- Public reader at `/newsletter/<slug>` with three-state gating (public / subscriber_aggregate / plan_tier)
+- Public reader at `/podcast/<slug>` with embedded player + show notes + transcript
+- Subscribe form with double opt-in flow
+- Unsubscribe flow with both header (List-Unsubscribe) and link path
+- Resend dispatch on publish with background-task pattern
+- Bounce/complaint handling via existing Resend webhook
+- `current_user_active_plan_tier()` SECURITY DEFINER STABLE helper NEW
+- `render-public-page` Edge Function NEW (SSR for newsletter + podcast + marketing)
+- `generate-sitemap-xml` Edge Function NEW (dynamic)
+- `resend-audiences-sync` Edge Function NEW (two-way sync)
+- `convert_html_to_tiptap` Edge Function NEW (paste-HTML import path)
+- `dispatch-newsletter-article` Edge Function NEW (background task)
+- RSS feed at `/newsletter/feed.xml`
+- Article + Person + Organization JSON-LD on every article page
+
+8 foundational decisions in scope doc: Q1-Q6 LOCKED, Q7-Q8 DEFERRED to session-open.
+
+Q7: Newsletter v1 launch content count (3-5 articles recommended).
+Q8: Comments on articles in v1 (recommended NO).
+Q6 routing infrastructure resolution (Vercel migration recommended) lands at Phase G3 start.
+
+### Build Queue item NEW Session 90
+
+**[ACTIVE for Group G Phase G1] `current_user_active_plan_tier()` SQL helper**
+
+Newsletter gating needs reusable SECURITY DEFINER STABLE SQL helper returning the calling user's effective active plan tier (`'base'`, `'premium'`, `'free'`, or NULL for anonymous/no-subscription). Currently the platform does plan-tier checking inline in `get_user_resources` per §79 but no extracted helper exists. Build alongside the newsletter gating RPC. Reusable beyond newsletter — applies to any future plan-tier-gated feature.
+
+**Touches:** `public.current_user_active_plan_tier()` function definition; signature `RETURNS text`; SET search_path; SECURITY DEFINER; STABLE; GRANT EXECUTE to authenticated + service_role; reads `users.subscription_tier` AND `users.subscription_status` AND filters by status='active'. NULL return for unauthenticated callers, `'free'` for users with no/inactive subscription, otherwise the tier text.
+
+---
