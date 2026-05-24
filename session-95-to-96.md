@@ -51,12 +51,15 @@ Orphan-sweep enumeration fix; archive_reason CHECK constraint addition; list_art
 
 **Spec file: `group-h-spec.md`** (430 lines, uploaded as part of Session 95 closeout).
 
-**Scope summary:**
-- 8 new block nodes: Eyebrow, Lead, Byline, SectionRule, DomainGrid + DomainRow, IndexRow + IndexCard, FooterMeta
-- 1 new mark: `accent` (colored emphasis text)
-- 3 article-level fields: `eyebrow_text`, `is_issue_based` + `issue_label`, `tags[]`
-- Architectural shift: client-side `generateJSON(html, extensions)` with image pre-pass server-side via new `import-html-images` Edge Function
-- 6 cycles (H1 done, H2-H6 remaining), 5-6 sessions estimate, 15-20 Lovable cycles
+**Scope summary (FULL CATALOG — Cole's explicit Session 95 close decision):**
+- ~33 new block nodes covering complete editorial vocabulary: Eyebrow, Lead, SectionRule, Byline, Masthead, Aside, FootnoteRef+Footnotes, Definition, Disclosure, DomainGrid+DomainRow, IndexRow+IndexCard, StepList+Step, Checklist+Item, ThreeColumn+Pane, FourColumn+Pane, ImageGallery, ImageCompare, Audio, StatGrid, Chart, Table, CodeDiff, Terminal, Math, Poll, CTA, SubscribeBlock, RelatedArticles, FooterMeta, AuthorBio, Citations, FurtherReading
+- 7 new marks: accent, smallCaps, superscript, subscript, underline, highlight, keyboard, abbr
+- 6 refined existing nodes: Callout, Pullquote, StatCallout, Image, Embed, TwoColumn, KeyMoments, codeBlock (add attrs + parseHTML rules)
+- 6 new article-level fields: eyebrow_text, is_issue_based + issue_label, tags[], masthead_publication + masthead_logo_glyph, default_layout_width, theme_variant
+- Architectural shift: client-side `generateJSON(html, extensions)` with image pre-pass server-side via new `import-html-images` Edge Function (deprecates `convert-html-to-tiptap`)
+- 6 cycles (H1 done, H2-H6 remaining), **8-13 sessions estimate, 30-42 Lovable cycles**
+- H2 + H3 each split into 8 sub-passes per §4.13 for incremental ship discipline
+- Spec is 712 lines (was 430 in initial draft; expanded after Cole's "build everything" directive)
 
 **Session 96 opens on Cycle H2 — Schema + parseHTML for new nodes.** Cole reviews spec, then we execute H2 directly.
 

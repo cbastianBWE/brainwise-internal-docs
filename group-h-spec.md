@@ -125,117 +125,347 @@ The existing TipTap schema (`src/components/newsletter/tiptap/`) provides:
 
 ---
 
-## 4. Proposed BrainWise visual vocabulary (final scope for Group H)
+## 4. Proposed BrainWise visual vocabulary — FULL CATALOG
 
-### 4.1 NEW BLOCK NODES (8 to build)
+**Design philosophy:** This is not a scoped MVP node list. It is the complete editorial vocabulary BrainWise needs to be best-in-class for prospect-facing newsletters. The intent is that ANY visual pattern Cole encounters in source HTML (his own authoring, Claude-generated artifacts, exports from Substack/Medium/Ghost/Beehiiv, third-party article HTML) maps cleanly to a BrainWise node. If a node is missing, articles look "stripped-down." If the catalog is complete, every import looks intentional.
 
-**1. `newsletterEyebrow`** — small-caps category tag above heading
-- Attrs: `text` (string), `variant` ('default' | 'accent') — variant controls whether the leading rule is orange or slate
-- Visual: 12px JetBrains Mono uppercase, 0.12em letter-spacing, orange (var(--bw-orange)) text, 32px horizontal rule preceding text, 32px top margin
-- ParseHTML: `div.eyebrow`, `p.eyebrow`, `[class~="eyebrow"]`
-- Slash menu: `/eyebrow`
-- Toolbar: included in "section" picker
-- ReadView: same as edit view minus drag handle
+Nodes are grouped by editorial function. Each entry includes: name, attrs, visual treatment intent, parseHTML target patterns, slash menu trigger, author affordances, and notes. Existing G4-0 nodes are marked ✓. Nodes that need refinement are marked ↻. New nodes are marked ➕. Order within each group is rough priority (top of group = highest priority for H2 first pass).
 
-**2. `newsletterLead`** — large lead paragraph (deck/lede)
-- Attrs: `dropcap` (boolean) — when true, first letter becomes orange drop-cap (matches source `.lede` treatment)
-- Visual: 21px Montserrat, line-height 1.5, slate-700 (when not dropcap) or navy with orange dropcap (when dropcap=true), max-width 620px, 48px bottom margin
-- ParseHTML: `p.deck` → `dropcap=false`, `p.lede` → `dropcap=true`, `[class*="lead"]`, `[class*="deck"]`
-- Slash menu: `/lead`, `/lede`
-- Author affordance: toggle dropcap on/off in floating attr menu
+### 4.1 STRUCTURAL — page chrome, hierarchy, framing
 
-**3. `newsletterByline`** — author + meta strip
-- Attrs: `entries` (array of `{text: string, bold: boolean}`)
-- Visual: 12px JetBrains Mono uppercase letterspaced, slate-500 ink, slate-700 for bold names, hairline top + bottom borders, 4px circular dots between entries, 24px vertical padding, 56px bottom margin
-- ParseHTML: `div.byline`, `p.byline`, `[class~="byline"]`. Parsing splits content on `<span>` boundaries and detects `<strong>` for bold flag
-- Slash menu: `/byline`
-- Author affordance: inline editable entry list, "+ Add entry" button, drag-reorder
-- Schema validation: max 5 entries, no nested formatting beyond bold
+✓ **`paragraph`** (StarterKit) — standard body paragraph
+✓ **`heading`** (StarterKit, levels 2/3/4 — h1 reserved for article title field)
+✓ **`bulletList`, `orderedList`, `listItem`** (StarterKit)
+✓ **`blockquote`** (StarterKit) — generic blockquote (distinct from pullquote which is a feature treatment)
+✓ **`codeBlock`** (StarterKit) — plain monospace code block
+✓ **`horizontalRule`** (StarterKit) — generic divider (distinct from sectionRule which is editorial)
+✓ **`hardBreak`** (StarterKit) — line break within paragraph
 
-**4. `newsletterSectionRule`** — numbered horizontal divider
-- Attrs: `number` (string, e.g., "01" or "I" or any short label), `style` ('numbered' | 'plain')
-- Visual: numbered: monospace orange "[ NN ]" + 1px hairline rule taking remaining width; plain: hairline rule only. 80px top margin, 32px bottom margin
-- ParseHTML: `div.section-rule`, `hr` with `data-numbered` attr
-- Slash menu: `/divider`, `/section`
-- Author affordance: number is contentEditable inline
+➕ **`newsletterEyebrow`** — small-caps category tag above a heading or article start
+- Attrs: `text` (string), `variant` ('default' | 'accent' | 'muted'), `with_rule` (boolean, default true — leading horizontal rule)
+- Visual: monospace uppercase letterspaced 12px, accent color (orange default, slate-700 for muted), 32px leading horizontal rule
+- ParseHTML: `div.eyebrow`, `p.eyebrow`, `[class~="eyebrow"]`, `[class~="kicker"]`, `[class~="category"]`, `[data-bw-node="eyebrow"]`
+- Slash: `/eyebrow`, `/kicker`, `/category`
+- Affordances: inline editable text, variant picker in node menu
 
-**5. `newsletterDomainGrid` + `newsletterDomainRow`** — labeled metric grid (count for 2)
-- Parent attrs: none
-- Row attrs: `number` (string, "01"), `label` (string, "Protection"), `tag` (string|null, "Threat"), `tag_variant` ('threat' | 'reward' | 'neutral' | null), `description` (string), `count` (string, "18"), `count_label` (string, "Facets")
-- Visual: 3-column grid (60px | 1fr | 100px), hairline top + per-row bottom borders, hover background tint
-- ParseHTML: `div.domain-grid` → parent, `div.domain-row` → row (read children for attrs)
-- Slash menu: `/grid`, `/domains`
-- Author affordance: row-level edit modal with all fields, drag-reorder rows, "+ Add row" button
-- Min/max: 2 to 10 rows
+➕ **`newsletterLead`** — large lead paragraph (deck/lede/standfirst)
+- Attrs: `dropcap` (boolean), `style` ('deck' | 'lede' | 'pullout') — deck=light slate, lede=full ink, pullout=accent-colored
+- Visual: 21px Montserrat, line-height 1.5, max-width 620px, 48px bottom margin; when dropcap=true, first letter becomes orange 82px float-left
+- ParseHTML: `p.deck` (dropcap=false, style=deck), `p.lede` (dropcap=true, style=lede), `p.lead`, `p.standfirst`, `[class*="lead-paragraph"]`
+- Slash: `/lead`, `/lede`, `/deck`
+- Affordances: dropcap toggle, style variant picker
 
-**6. `newsletterIndexRow` + `newsletterIndexCard`** — comparative metric cards (count for 2)
+➕ **`newsletterSectionRule`** — numbered or styled section divider
+- Attrs: `number` (string, "01" or "I" or short label), `style` ('numbered' | 'plain' | 'titled' | 'dot'), `title` (string|null, used when style=titled)
+- Visual: numbered → monospace orange "[ NN ]" + 1px hairline taking remaining width; plain → hairline only; titled → orange title + hairline; dot → three centered dots (• • •) for soft section breaks
+- ParseHTML: `div.section-rule`, `hr.section-rule`, `div.section-break`, `hr[data-numbered]`, `hr.dot-divider`
+- Slash: `/divider`, `/section`, `/break`
+- Affordances: style variant picker, number/title contentEditable
+
+➕ **`newsletterByline`** — author + meta strip
+- Attrs: `entries` (array of `{text: string, bold: boolean, link?: string}`), `separator_style` ('dot' | 'pipe' | 'slash')
+- Visual: monospace uppercase letterspaced 12px, hairline top + bottom borders, 24px vertical padding, configurable separator between entries
+- ParseHTML: `div.byline`, `p.byline`, `address.byline`, `[class~="byline"]`, `[class~="author-meta"]`. Parses spans, detects `<strong>` for bold, detects `<a>` for link
+- Slash: `/byline`, `/author`
+- Affordances: inline editable entry list with +/- buttons, drag-reorder, per-entry bold/link toggle, separator style picker
+
+➕ **`newsletterMasthead`** — issue masthead strip ("Synapse / Field Notes · ISSUE 047 · 2026")
+- Attrs: `publication` (string), `issue_label` (string|null), `date_label` (string|null), `logo_glyph` (string|null) — e.g. "▲" before publication name
+- Visual: full-width strip, monospace uppercase, hairline bottom border, displayed at top of article above hero/title
+- ParseHTML: `div.topbar`, `div.masthead`, `header.publication`, `[data-bw-node="masthead"]`
+- Slash: `/masthead`, `/topbar`
+- Affordances: three text fields, optional glyph picker (▲ ◆ ● ■ etc.)
+
+### 4.2 EMPHASIS — visual weight, editorial pause
+
+✓ **`newsletterCallout`** (existing) — emphasis box with left accent bar
+- Existing attrs: variant (info/warning/success/error), title, body
+- ↻ Extend: add `label_style` ('plain' | 'editorial' — editorial = monospace uppercase label like "// The Operating Insight"), `accent_bar` (boolean default true), `tone` ('default' | 'neutral' | 'cautionary' | 'celebratory' | 'editorial')
+- ParseHTML add: `div.callout`, `aside.callout`, `div[class~="note"]`, `div[class~="info-box"]`, `div[class~="alert"]`. First child `.callout-label` → editorial style
+
+✓ **`newsletterPullquote`** (existing) — large emphasized quote
+- ↻ Extend: add `attribution_style` ('plain' | 'editorial' — editorial = `//` prefix monospace uppercase), `quote_glyph` ('curly' | 'angle' | 'none'), `alignment` ('left' | 'center')
+- ParseHTML add: `div.pullquote`, `aside.pullquote`, `blockquote.pullquote`, `[class~="pull-quote"]`, `[class~="featured-quote"]`. `<cite>` child with text starting `//` → editorial style
+
+✓ **`newsletterStatCallout`** (existing) — single stat + label
+- ↻ Extend: add `size` ('default' | 'large' | 'jumbo'), `accent_color` ('orange' | 'green' | 'teal' | 'navy' | 'purple')
+- ParseHTML add: `div.stat`, `div.metric`, `[class~="big-number"]`
+
+➕ **`newsletterAside`** — secondary content / "by the way" box
+- Attrs: `label` (string|null, e.g. "Aside" or "Background"), `tone` ('default' | 'subtle')
+- Visual: lighter weight than callout, no accent bar, surface-tinted background, smaller font, indented from main column
+- ParseHTML: `aside`, `div.aside`, `div.sidebar`, `[class~="by-the-way"]`
+- Slash: `/aside`, `/sidebar`
+
+➕ **`newsletterFootnoteRef` (mark) + `newsletterFootnotes` (block)** — paired footnote system
+- Ref attrs (mark): `footnote_id` (string), `display_number` (int auto-computed)
+- Block attrs: `entries` (array of `{id, html_content}`)
+- Visual: ref renders as superscript orange number that scroll-anchors to entries block; entries block at article end, hairline top border, numbered list
+- ParseHTML: `sup.footnote-ref` + `<a href="#fn-N">` for refs; `ol.footnotes`, `div.footnotes`, `section.footnotes` for block
+- Slash: `/footnote`
+- Affordances: inline "+ footnote" button, content editor for each entry, auto-renumbering on add/remove
+
+➕ **`newsletterDefinition`** — inline term + definition pair (glossary-style)
+- Attrs: `term` (string), `definition` (rich text), `style` ('inline' | 'card')
+- Visual: inline = dashed underline on term with hover tooltip; card = full-width labeled box "TERM — definition text"
+- ParseHTML: `dl.glossary`, `dfn`, `[class~="definition"]`, `[class~="term-def"]`
+- Slash: `/define`, `/term`
+
+➕ **`newsletterDisclosure`** — collapsible details/summary
+- Attrs: `summary` (string), `body` (rich text), `default_open` (boolean)
+- Visual: clickable summary with chevron, expands to reveal body content with hairline left border
+- ParseHTML: `<details>` + `<summary>`, `div.disclosure`, `div.collapsible`
+- Slash: `/disclosure`, `/collapsible`, `/details`
+
+### 4.3 INLINE — text-level formatting (marks)
+
+✓ **`bold`, `italic`, `strike`, `code`, `link`** (StarterKit + Link with safe-URL)
+✓ **`TextStyleWithFontSize`** (existing inline font-size mark from lesson blocks)
+
+➕ **`accent` mark** — colored/styled emphasis text
+- Attrs: `color` ('orange' | 'green' | 'teal' | 'navy' | 'purple' | 'mustard'), `style` ('plain' | 'italic' | 'bold-italic'), `weight` ('normal' | 'heavy')
+- Visual: changes text color + optional italic/weight inside heading or body
+- ParseHTML: `span.accent`, `span[data-accent]`, `mark.accent`, `em.accent`
+- Bubble menu: "Accent" picker when text selected (color + style + weight)
+
+➕ **`smallCaps` mark** — small caps for inline editorial labels
+- Visual: `font-variant-caps: all-small-caps` + slight letter-spacing
+- ParseHTML: `span.small-caps`, `[style*="small-caps"]`, `span[data-smallcaps]`
+- Bubble menu: toggle
+
+➕ **`superscript` mark** + **`subscript` mark** — typographic positioning
+- Visual: `vertical-align: super/sub` + smaller font
+- ParseHTML: `<sup>`, `<sub>`
+- Bubble menu: toggle pair
+
+➕ **`underline` mark** — explicit underline (distinct from link underline)
+- ParseHTML: `<u>`, `[style*="underline"]`, `[class~="underline"]`
+- Bubble menu: toggle
+
+➕ **`highlight` mark** — background-color emphasis
+- Attrs: `color` ('yellow' | 'orange' | 'green' | 'pink' | 'blue')
+- Visual: soft background tint behind text
+- ParseHTML: `mark`, `span.highlight`, `[style*="background"]`
+- Bubble menu: color picker
+
+➕ **`keyboard` mark** — keyboard input styling
+- Visual: monospace, surface background, 1px slate border, slight inset shadow
+- ParseHTML: `<kbd>`
+- Bubble menu: toggle
+
+➕ **`abbr` mark** — abbreviation with title attribute
+- Attrs: `title` (string)
+- Visual: dotted underline, hover-reveals title
+- ParseHTML: `<abbr title="...">`
+- Bubble menu: with title input
+
+### 4.4 MEDIA — images, video, audio, embeds
+
+✓ **`newsletterImage`** (existing) — image with caption support
+- Existing attrs: alt, caption, width, asset_id, import_failed_src
+- ↻ Extend: add `caption_style` ('plain' | 'figure' — adds "FIG." prefix in orange | 'minimal'), `alignment` ('inline' | 'wide' | 'full-bleed' | 'left' | 'right'), `frame` ('none' | 'border' | 'shadow' | 'rounded'), `caption_position` ('below' | 'overlay-bottom' | 'side')
+- ParseHTML add: `<figure>` + `<figcaption>` → caption_style='figure', `img.full-bleed`, `img.wide`, `picture` element support
+
+✓ **`newsletterEmbed`** (existing) — iframe wrappers for video/audio
+- Existing attrs: provider, embed_id, url, title
+- ↻ Extend: add `meta_caption` (string|null — "WATCH · Background context · 4:32" style), `aspect_ratio` ('16:9' | '4:3' | '1:1' | '9:16'), `frame_style` ('none' | 'editorial' — bordered with meta strip below)
+- ParseHTML add: `div.video-embed` wrapping iframe, `div.video-embed-meta` sibling → meta_caption, support for additional providers: SoundCloud, Apple Podcasts, Twitch, Loom, Wistia, Descript
+
+➕ **`newsletterImageGallery`** — multi-image grid
+- Attrs: `columns` (2 | 3 | 4), `gap` ('tight' | 'normal' | 'wide'), `caption` (string|null overall caption), images (array of `{asset_id, alt, caption}`)
+- Visual: CSS grid with consistent aspect ratios, optional per-image captions, lightbox on click in reader
+- ParseHTML: `div.gallery`, `div.image-grid`, `figure.gallery`, multiple consecutive `<img>` wrapped in a single container
+- Slash: `/gallery`
+
+➕ **`newsletterImageCompare`** — before/after slider
+- Attrs: `before_asset_id`, `after_asset_id`, `before_label`, `after_label`, `default_position` (0-100)
+- Visual: split-view slider, draggable divider, labels float above
+- ParseHTML: `div.compare`, `div.before-after`, custom data attributes
+- Slash: `/compare`
+
+➕ **`newsletterAudio`** — native audio player (distinct from podcast embed)
+- Attrs: `asset_id`, `title`, `duration_seconds`, `transcript_url` (optional)
+- Visual: full-width player with waveform, title, duration, transcript toggle if present
+- ParseHTML: `<audio>` element, `div.audio-player`
+- Slash: `/audio`
+
+### 4.5 LAYOUT — multi-column, structured data displays
+
+✓ **`newsletterTwoColumn` + `newsletterTwoColumnPane`** (existing) — generic two-column
+- ↻ Extend parent attrs: add `gap` ('tight' | 'normal' | 'wide'), `ratio` ('1:1' | '2:1' | '1:2' | '3:2'), `vertical_align` ('top' | 'center' | 'baseline')
+- ↻ Extend pane attrs: add `background` ('none' | 'surface' | 'accent'), `padding` ('none' | 'normal' | 'roomy')
+- ParseHTML add: `div.two-col`, `div.split`, `div.grid-2`
+
+✓ **`newsletterKeyMoments` + `newsletterKeyMoment`** (existing) — multi-item highlight list
+- Existing: free-form key + value pairs
+- ↻ Extend item attrs: add `tone` ('default' | 'highlighted' | 'muted'), `icon_glyph` (string|null)
+- ParseHTML add: `div.key-moments`, `ol.takeaways`, `[class~="highlights"]`
+
+➕ **`newsletterThreeColumn` + `newsletterThreeColumnPane`** — three-up grid
+- Attrs: same as TwoColumn but 3 panes
+- Visual: stacks to single column on mobile <600px
+- ParseHTML: `div.three-col`, `div.grid-3`, `div.tri-column`
+- Slash: `/three-column`
+
+➕ **`newsletterFourColumn` + `newsletterFourColumnPane`** — four-up grid (for stats grids, icon grids)
+- Attrs: same as TwoColumn but 4 panes
+- Visual: stacks to 2x2 on tablet, single column on mobile
+- ParseHTML: `div.four-col`, `div.grid-4`, `div.quad-column`
+- Slash: `/four-column`
+
+➕ **`newsletterDomainGrid` + `newsletterDomainRow`** — labeled metric grid (the "domain-grid" pattern from source)
+- Parent attrs: `style` ('rows' | 'cards'), `show_numbers` (boolean default true)
+- Row attrs: `number` (string), `label` (string), `tag_text` (string|null), `tag_variant` ('threat'|'reward'|'neutral'|'success'|'warning'|null), `description` (string), `count_value` (string), `count_label` (string)
+- ParseHTML: `div.domain-grid` parent, `div.domain-row` child
+- Slash: `/grid`, `/domains`, `/metric-list`
+
+➕ **`newsletterIndexRow` + `newsletterIndexCard`** — comparative metric cards
 - Parent attrs: `columns` (2 | 3, default 2)
-- Card attrs: `tag` (string, "Threat Reactivity Index"), `name` (string, "TRI"), `formula` (string|null, the math), `note` (string, description), `accent_color` ('orange' | 'green' | 'teal' | 'navy', controls top stripe color)
-- Visual: cards with 2px top accent stripe, surface background (cream-100), hairline border, monospace formula in slate-50 inset box, large bold "name" (32px Poppins 800)
-- ParseHTML: `div.index-row` → parent, `div.index-card` → card (reads `tri`/`rsi`/etc. additional classes to determine accent_color)
-- Slash menu: `/indices`, `/metric cards`, `/comparison`
-- Author affordance: per-card edit modal, drag-reorder cards, +/- columns toggle
+- Card attrs: `tag` (string), `name` (string), `formula` (string|null), `note` (string), `accent_color` ('orange'|'green'|'teal'|'navy'|'purple')
+- ParseHTML: `div.index-row` parent, `div.index-card` child
+- Slash: `/indices`, `/metric-cards`, `/comparison`
 
-**7. `newsletterFooterMeta`** — end-of-article tag strip + issue identifier
-- Attrs: `tags` (string[]), `issue_label` (string|null, e.g., "Synapse Field Notes · 047")
-- Visual: 96px top margin, hairline top border, monospace uppercase letterspaced, 11px, tags as small chips (5px padding, surface bg, hairline border), justify-between layout
-- ParseHTML: `div.footer-meta`
-- Slash menu: `/footer-meta`, `/tags`
-- Author affordance: tag input with chip display, optional issue label text input
-- Render note: this is the bottom of an article — also serves as the marker for "article ends here" for SEO crawlers and reader nav. May want to auto-render at article end when article.tags array is set (defer this decision)
+➕ **`newsletterStepList` + `newsletterStep`** — numbered step-by-step process
+- Parent attrs: `style` ('vertical' | 'horizontal'), `connector` ('line' | 'arrow' | 'none')
+- Step attrs: `number` (auto), `title` (string), `body` (rich text), `glyph` (string|null icon)
+- Visual: vertical = numbered circles connected by line; horizontal = inline timeline
+- ParseHTML: `ol.steps`, `div.process`, `div.timeline`, `[class~="step-list"]`
+- Slash: `/steps`, `/process`, `/timeline`
 
-**8. `newsletterInlineFigure`** — image WITH captioned figure semantics (variant of newsletterImage)
-- This is **mostly already covered by `newsletterImage` with caption attr**. The visual treatment differs slightly: source uses "FIG." prefix in orange before figcaption text. **Decision: add `caption_style` attr to existing `newsletterImage`** rather than creating a new node. Variants: 'plain' (current behavior, no prefix) | 'figure' (FIG. prefix in orange) | 'cover' (full-bleed with overlay, mapped to article cover_asset_id at import time, not as a body node).
-- This is a node REFINEMENT, not a new node. Still counted as part of Group H work.
+➕ **`newsletterChecklist` + `newsletterChecklistItem`** — task/checklist list (distinct from ordered list)
+- Item attrs: `checked` (boolean), `body` (rich text)
+- Visual: square or circular checkbox glyph, struck-through when checked
+- ParseHTML: `<input type="checkbox">` inside list items, `ul.checklist`, `[class~="task-list"]`
+- Slash: `/checklist`, `/tasks`
+- Affordances: click checkbox to toggle (preserves in published version, not interactive in reader for non-authors)
 
-### 4.2 NEW MARKS (2 to build)
+### 4.6 DATA — tables, charts, structured information
 
-**1. `accent` mark** — colored emphasis text inside headings
-- Attrs: `color` ('orange' | 'green' | 'teal'), `style` ('plain' | 'italic')
-- Visual: changes text color to specified accent + optional italic. Used for the "how threat profiles" span inside the test file's h1
-- ParseHTML: `span.accent` → `color='orange', style='italic'` (default), `span[data-accent]` → reads attr
-- Toolbar: bubble menu addition when text is selected inside a heading — "Accent" toggle with color picker
-- ReadView: applies the mark styling, no editing UI
+➕ **`table` + `tableRow` + `tableHeader` + `tableCell`** — full tables via @tiptap/extension-table
+- Attrs on cell: `colspan`, `rowspan`, `align`
+- Visual: hairline borders, header row with surface background, alternating row tint optional, mobile-responsive (horizontal scroll OR collapse to cards)
+- ParseHTML: native `<table>` / `<tr>` / `<th>` / `<td>` (TipTap extension handles this natively)
+- Slash: `/table`
+- Affordances: row/column add/remove, header toggle, alignment per cell, full keyboard navigation
 
-**2. `caption` mark (or extend `code`?)** — inline editorial labels
-- Decision: probably not needed. The contexts where source uses inline monospace labels (byline entries, eyebrow text, callout-label, video-embed-meta) are all already handled by the parent nodes' typography. Skip unless we find a specific authoring case.
+➕ **`newsletterStatGrid`** — grid of stat callouts (multi-stat dashboard)
+- Attrs: `columns` (2 | 3 | 4), stats (array of `{value, label, change, change_direction}`)
+- Visual: grid of stat cards, each with large number + label + optional delta indicator
+- ParseHTML: `div.stat-grid`, `div.stats-row`, multiple `[class~="stat-card"]` siblings
+- Slash: `/stat-grid`, `/stats`
 
-### 4.3 EXTENSIONS TO EXISTING NODES
+➕ **`newsletterChart`** — embedded chart (initially placeholder/image-based)
+- Attrs: `chart_type` ('line' | 'bar' | 'pie' | 'donut' | 'area' | 'image'), `data_json` (string — chart.js compatible config), `caption` (string|null)
+- Visual: rendered chart in BrainWise color palette; for v1, image-based fallback if chart_type='image'
+- ParseHTML: `figure.chart`, `div.chart`, `[data-chart]`, fallback to `<img>` with chart-like alt text
+- Slash: `/chart`
+- Notes: full chart-rendering may be a phase-2 deliverable. v1 ships with the schema + image fallback so that placeholder chart imports work and content survives.
 
-**`newsletterPullquote`** — add `attribution_style` attr ('plain' | 'editorial')
-- Plain (existing default): attribution below quote, italic, small.
-- Editorial (new): attribution prefixed with `//`, monospace uppercase letterspaced (matches source `.pullquote cite` treatment)
-- ParseHTML enhancement: when parent has `class="pullquote"` and contains `<cite>` with text starting `//`, parse as editorial style
-- Editor affordance: variant toggle in node menu
+### 4.7 CODE & TECHNICAL — for technical newsletters
 
-**`newsletterCallout`** — add `label_style` attr ('plain' | 'editorial')
-- Plain (existing): title in body, no label
-- Editorial: monospace uppercase label above title (matches source `.callout-label` like "// The Operating Insight")
-- Add `accent_bar` attr (boolean, default true) — controls whether the left vertical accent bar is shown
-- ParseHTML enhancement: `div.callout` with first child `div.callout-label` → editorial style
+✓ **`codeBlock`** (existing, plain)
+- ↻ Extend: add `language` (string|null for syntax highlighting hint), `show_line_numbers` (boolean), `highlight_lines` (string|null — e.g. "3,5-7"), `filename` (string|null shown as caption above code)
+- Visual: monospace, surface bg, syntax-highlight CSS classes via Prism or Shiki (deferred to phase 2), line numbers in gutter
+- ParseHTML add: `<pre>` + `<code class="language-X">`, `div.code-block`, `figure.code` with caption
 
-**`newsletterEmbed`** — add `meta_caption` attr (string|null)
-- Source's `.video-embed-meta` ("WATCH · Background context · 4:32") is editorial metadata below the iframe. Add as an optional caption-like field.
-- ParseHTML enhancement: when iframe is wrapped in `div.video-embed` with a sibling `div.video-embed-meta`, extract meta text into `meta_caption`
+➕ **`newsletterCodeDiff`** — diff view (before/after code)
+- Attrs: `before_text`, `after_text`, `language`, `filename`
+- Visual: split or unified view with red/green line highlights
+- ParseHTML: `div.diff`, `div.code-diff`, `<pre class="diff">`
+- Slash: `/diff`, `/code-diff`
 
-### 4.4 NEW FIELDS ON `newsletter_articles` TABLE
+➕ **`newsletterTerminal`** — terminal/command-line block
+- Attrs: `commands` (array of `{prompt, command, output}`), `theme` ('dark' | 'light')
+- Visual: dark terminal-style block, prompt in green, commands in white, output in slate
+- ParseHTML: `pre.terminal`, `div.terminal`, `[class~="cli"]`
+- Slash: `/terminal`, `/cli`
 
-**1. `eyebrow_text` (text, nullable)** — auto-rendered as eyebrow node at article top during read.  
-   - When set, the public reader prepends a `newsletterEyebrow` block before the title.  
-   - Removes need to manually author the eyebrow in body. Cleaner editorial flow.
+➕ **`newsletterMath`** — mathematical expression (LaTeX/MathJax)
+- Attrs: `latex` (string), `display` ('inline' | 'block')
+- Visual: rendered via KaTeX (phase 2) or as fallback monospace
+- ParseHTML: `<math>`, `span.math`, `div.math`, `[data-latex]`
+- Slash: `/math`, `/equation`
+- Notes: v1 ships schema + raw LaTeX display fallback. KaTeX integration phase 2.
 
-**2. `is_issue_based` (boolean, default false) + `issue_label` (text, nullable)**  
-   - When true, public reader renders the `newsletterFooterMeta` automatically at article end using article.tags + issue_label.  
-   - When false, footer-meta only renders if explicitly added to body.  
-   - For "Synapse Field Notes · ISSUE 047" style articles.
+### 4.8 INTERACTIVE — engagement elements
 
-**3. `tags` (text[], nullable, indexed via GIN)**  
-   - Used by footer-meta auto-render AND by future archive filtering.  
-   - Existing schema may already have a `keywords` or `tags` field — needs migration audit before adding.
+➕ **`newsletterPoll`** — simple poll (anonymous, single-question)
+- Attrs: `question` (string), `options` (array of strings), `style` ('buttons' | 'bars'), `votes_visible` (boolean)
+- Visual: poll question + option buttons, post-vote shows percentage bars
+- Backend: requires `newsletter_polls` + `newsletter_poll_votes` tables (new — adds to spec)
+- ParseHTML: `div.poll`, `form.poll`, `[data-bw-node="poll"]`
+- Slash: `/poll`
+- Notes: significant backend addition; can be schema-only in H2 with full backend in a later cycle. Spec records the intent.
 
-### 4.5 NEW DESIGN TOKENS
+➕ **`newsletterCTA`** — call-to-action button block
+- Attrs: `label` (string), `url` (string), `variant` ('primary' | 'secondary' | 'ghost'), `size` ('default' | 'large'), `tracking_id` (string|null)
+- Visual: centered button with BrainWise orange primary, navy secondary, ghost variant for low-emphasis
+- ParseHTML: `a.cta`, `a.button`, `div.cta-block`, `[class~="call-to-action"]`
+- Slash: `/cta`, `/button`
 
-Adding to `newsletter-prose.css` and `marketing-tokens.css`:
+➕ **`newsletterSubscribeBlock`** — inline subscribe form (reuses G6 SubscribeForm)
+- Attrs: `headline` (string), `subtext` (string), `variant` ('full' | 'inline')
+- Visual: card or inline embed of the existing SubscribeForm component
+- ParseHTML: `div.subscribe`, `div.newsletter-signup`, `[data-bw-node="subscribe"]`
+- Slash: `/subscribe`
+- Affordances: limit to one per article (validation in author UI)
+
+➕ **`newsletterRelatedArticles`** — auto-linked related articles
+- Attrs: `mode` ('manual' | 'auto-by-tags' | 'auto-by-category'), `article_ids` (uuid[]), `display_style` ('cards' | 'list' | 'inline')
+- Visual: row of newsletter article cards (reuses G6 NewsletterArticleCard)
+- ParseHTML: `div.related-articles`, `aside.related`, `[data-bw-node="related"]`
+- Slash: `/related`
+
+### 4.9 ARTICLE END — closing elements
+
+➕ **`newsletterFooterMeta`** — end-of-article tag strip + issue identifier
+- Attrs: `tags` (string[]), `issue_label` (string|null), `show_share_links` (boolean)
+- Visual: monospace uppercase, hairline top border, tags as chips, justify-between layout, optional share buttons (X, LinkedIn, copy-link)
+- ParseHTML: `div.footer-meta`, `footer.article`, `[class~="article-footer"]`
+- Slash: `/footer-meta`, `/article-end`
+- Notes: when article-level `is_issue_based=true`, reader auto-renders this from article.tags + article.issue_label
+
+➕ **`newsletterAuthorBio`** — author bio block at article end
+- Attrs: `user_id` (uuid, references users), `style` ('compact' | 'expanded'), `show_follow_links` (boolean)
+- Visual: author photo + name + bio + optional social links; pulls from users.bio (deferred field) and existing profile
+- ParseHTML: `div.author-bio`, `[data-bw-node="author"]`, `[class~="byline-card"]`
+- Slash: `/author-bio`
+- Notes: depends on the deferred `users.bio` column + author bio edit UI item from prior build queue. Add that work as H2 prereq if author bio block ships in v1.
+
+➕ **`newsletterCitations`** — references/works-cited block
+- Attrs: `style` ('chicago' | 'apa' | 'mla' | 'plain'), `entries` (array of `{author, title, source, year, url}`)
+- Visual: hairline top border, monospace numbered list, hanging indent
+- ParseHTML: `ol.citations`, `div.references`, `section.bibliography`
+- Slash: `/citations`, `/references`
+
+➕ **`newsletterFurtherReading`** — recommended reading list (distinct from related articles — external links)
+- Attrs: entries (array of `{title, source, url, blurb?}`)
+- Visual: hairline top border, "FURTHER READING" eyebrow, list of titled links with optional one-line description
+- ParseHTML: `div.further-reading`, `aside.recommendations`, `[class~="read-more"]`
+- Slash: `/further-reading`, `/recommendations`
+
+### 4.10 NEW MARK + NODE TYPE COUNTS
+
+**Total catalog at end of Group H:**
+- ✓ Existing nodes/marks from G4-0: 16
+- ↻ Refined existing: 6 (Callout, Pullquote, StatCallout, Image, Embed, TwoColumn, KeyMoments, codeBlock — adding attrs/parseHTML)
+- ➕ New block nodes: 33
+- ➕ New marks: 7
+
+**Final catalog size: ~50 distinct block nodes + 13 marks.**
+
+That is the scope of "best in class." This is not aspirational over-scoping — every node in §4 is justified by a real editorial pattern that prospect-facing newsletters use.
+
+### 4.11 NEW FIELDS ON `newsletter_articles` TABLE
+
+**1. `eyebrow_text` (text, nullable)** — auto-renders as eyebrow node at article top during read
+**2. `is_issue_based` (boolean, default false) + `issue_label` (text, nullable)** — when true, footer-meta auto-renders at article end
+**3. `tags` (text[], nullable, indexed via GIN)** — used by footer-meta auto-render + future archive filtering + related-articles auto-discovery
+**4. `masthead_publication` (text, nullable) + `masthead_logo_glyph` (text, nullable)** — for issue-based publications (Synapse Field Notes style); when set, reader prepends masthead block automatically
+**5. `default_layout_width` (text, default 'standard')** — 'standard' | 'wide' | 'narrow' — controls the article-wrap max-width
+**6. `theme_variant` (text, default 'default')** — 'default' | 'editorial' | 'minimal' | 'technical' — variant affects typography weights, accent intensities, spacing rhythm globally for that article
+
+### 4.12 NEW DESIGN TOKENS
 
 ```css
 :root {
@@ -256,12 +486,39 @@ Adding to `newsletter-prose.css` and `marketing-tokens.css`:
   /* Dropcap */
   --bw-dropcap-size: 82px;
   --bw-dropcap-color: var(--bw-orange);
+
+  /* Accent variants (extends existing palette) */
+  --bw-accent-orange: #F5741A;  /* primary */
+  --bw-accent-green: #2D6A4F;
+  --bw-accent-teal: #006D77;
+  --bw-accent-purple: #3C096C;
+  --bw-accent-mustard: #7a5800;
+  --bw-accent-navy: #021F36;
+
+  /* Layout variants */
+  --bw-content-width-narrow: 640px;
+  --bw-content-width-standard: 780px;
+  --bw-content-width-wide: 920px;
+
+  /* Grid gaps */
+  --bw-grid-gap-tight: 8px;
+  --bw-grid-gap-normal: 16px;
+  --bw-grid-gap-wide: 32px;
 }
 ```
 
-Plus updates to `newsletter-prose.css` adding styles for each new node class.
+### 4.13 NODE-ORDERING WITHIN H2
 
----
+H2 builds the entire schema layer. Implementation order matters because dependent nodes (parent/child pairs) must be defined together. Suggested order:
+
+**Pass 1 — foundational singletons:** Eyebrow, Lead, SectionRule, Byline, Masthead, Aside, Accent mark
+**Pass 2 — composite (parent + child pairs):** DomainGrid+Row, IndexRow+Card, StepList+Step, Checklist+Item, ThreeColumn+Pane, FourColumn+Pane, ImageGallery, StatGrid
+**Pass 3 — extensions to existing nodes:** Callout/Pullquote/StatCallout/Image/Embed/TwoColumn/KeyMoments/codeBlock refinements
+**Pass 4 — marks:** all 7 new marks
+**Pass 5 — interactive/data nodes:** Table, Audio, ImageCompare, Math, Terminal, CodeDiff, Chart placeholder
+**Pass 6 — article-end:** FooterMeta, AuthorBio, Citations, FurtherReading
+**Pass 7 — interactive/social:** CTA, SubscribeBlock, RelatedArticles, Disclosure, Definition, FootnoteRef + Footnotes
+**Pass 8 — backend-dependent:** Poll (requires new tables; can ship schema-only in H2, full backend in later cycle)
 
 ## 5. Architectural shift — generateJSON pattern
 
@@ -311,93 +568,118 @@ This is cleaner overall and reduces server-side complexity.
 
 ### Cycle H1 — Foundation (this spec, COMPLETE)
 - ✓ Recon of test files
-- ✓ Class inventory
-- ✓ Node catalog decided
+- ✓ Full class inventory
+- ✓ Complete node catalog decided per §4 (no MVP scope-down)
 - ✓ Architecture decision (Option B — client-side generateJSON)
-- ✓ Spec document published
+- ✓ Spec document published as authoritative source for Sessions 96-100+
 
-### Cycle H2 — Schema + parseHTML for new nodes (1 session, ~5 Lovable cycles)
-**Backend (Supabase migrations):**
-- H2-MIG-1: Add `eyebrow_text`, `is_issue_based`, `issue_label` columns to `newsletter_articles`
-- H2-MIG-2: Audit existing `tags`/`keywords` field; add `tags text[]` if not present with GIN index
-- H2-MIG-3: Update `upsert_article` RPC signature to accept new fields
-- H2-MIG-4: Update `get_article_for_reader` RPC to return new fields
+### Cycle H2 — Schema + parseHTML for ENTIRE catalog (2-3 sessions)
 
-**Frontend (Lovable build):**
-- H2-FE-1: Add 8 new node schemas to `src/components/newsletter/tiptap/nodes/` (Eyebrow, Lead, Byline, SectionRule, DomainGrid+DomainRow, IndexRow+IndexCard, FooterMeta)
-- H2-FE-2: Add `accent` mark to `src/components/newsletter/tiptap/marks/` (new directory)
-- H2-FE-3: Extend Pullquote, Callout, Embed schemas with new attrs + parseHTML enhancements
-- H2-FE-4: Update `buildExtensions.ts` to include new nodes/marks
-- H2-FE-5: Update `tiptapDocToPlainText.ts` (versions module) to handle new node types
-- H2-FE-6: Add CSS for all new nodes to `newsletter-prose.css` (both author + read styling)
+Backend (Supabase migrations — run first, verify each before next):
+- H2-MIG-1: Add new columns to `newsletter_articles`: `eyebrow_text`, `is_issue_based`, `issue_label`, `masthead_publication`, `masthead_logo_glyph`, `default_layout_width`, `theme_variant`, `tags text[]` (if missing) with GIN index
+- H2-MIG-2: Update `upsert_article` RPC signature to accept all new fields
+- H2-MIG-3: Update `get_article_for_reader` RPC return to include all new fields
+- H2-MIG-4: Update `list_admin_newsletter_articles` to include new fields in row output
+- H2-MIG-5: If Poll node included in H2 scope: `newsletter_polls` + `newsletter_poll_votes` tables + RLS + RPCs (can defer the voting backend, but schema-side enough to satisfy node FK)
+- H2-MIG-6: If AuthorBio node included: `users.bio` column + RLS (promote from existing deferred build queue item)
 
-### Cycle H3 — NodeViews for editor + reader (1 session, ~5 Lovable cycles)
-- H3-NV-1: Edit NodeViews for all 8 new nodes (with affordances: drag handle, edit modal, drag-reorder for grid/row children, +/- entry buttons)
-- H3-NV-2: Read NodeViews for all 8 new nodes (simpler, no edit affordances)
-- H3-NV-3: Slash menu entries for each new node
-- H3-NV-4: Floating attribute editors (for accent mark color picker, dropcap toggle on lead, etc.)
-- H3-NV-5: Eyebrow auto-render: `NewsletterArticle.tsx` (reader) prepends eyebrow block if `eyebrow_text` is set
-- H3-NV-6: Footer-meta auto-render: `NewsletterArticle.tsx` appends footer-meta if `is_issue_based=true`
-- H3-NV-7: AdminNewsletterArticle.tsx sidebar additions: eyebrow_text input, is_issue_based toggle, issue_label input, tags input
+Frontend (Lovable cycles — execute per §4.13 pass ordering):
+- **H2-FE-Pass1: Foundational singletons (4-6 Lovable cycles)** — Eyebrow, Lead, SectionRule, Byline, Masthead, Aside; plus `accent` mark
+- **H2-FE-Pass2: Composite parent+child pairs (4-6 cycles)** — DomainGrid+Row, IndexRow+Card, StepList+Step, Checklist+Item, ThreeColumn+Pane, FourColumn+Pane, ImageGallery, StatGrid
+- **H2-FE-Pass3: Extensions to existing nodes (2-3 cycles)** — Callout/Pullquote/StatCallout/Image/Embed/TwoColumn/KeyMoments/codeBlock refinements per §4 ↻ entries
+- **H2-FE-Pass4: Remaining marks (1-2 cycles)** — smallCaps, superscript, subscript, underline, highlight, keyboard, abbr
+- **H2-FE-Pass5: Interactive/data nodes (2-3 cycles)** — Table (via @tiptap/extension-table), Audio, ImageCompare, Math (schema only), Terminal, CodeDiff, Chart (schema + image fallback)
+- **H2-FE-Pass6: Article-end nodes (2 cycles)** — FooterMeta, AuthorBio (if H2-MIG-6 shipped), Citations, FurtherReading
+- **H2-FE-Pass7: Interactive/social (2 cycles)** — CTA, SubscribeBlock, RelatedArticles, Disclosure, Definition, FootnoteRef + Footnotes
+- **H2-FE-Pass8: Backend-dependent (1 cycle, schema-only if backend deferred)** — Poll
+- **H2-FE-Final: Wire-up (1 cycle)** — update `buildExtensions.ts` to include EVERY new node/mark, update `tiptapDocToPlainText.ts` to handle every new node type, add CSS for every new node to `newsletter-prose.css`
 
-### Cycle H4 — Image-only Edge Function (1 session, ~2 Lovable cycles)
-- H4-BE-1: New Edge Function `import-html-images` (`convert-html-to-tiptap` deprecated and removed)
-- H4-BE-2: Class A auth (super-admin gate), SSRF defense, same 30-image / 10MB limits as v1
-- H4-BE-3: Returns `resolutions` map only — no DOM walking, no TipTap generation server-side
-- H4-FE-1: Modal refactor (`ImportHtmlModal.tsx`): client now (a) parses HTML in browser, (b) extracts image URLs, (c) calls `import-html-images` for resolutions, (d) rewrites img src to asset_id refs in DOM, (e) calls `generateJSON(modifiedHtml, extensions)`, (f) previews + commits
-- H4-FE-2: Update modal stats display (still shows images attempted/succeeded/failed, tag drops)
-- H4-FE-3: Migrate orphan-sweep parent enumeration if any RPC signatures changed
+Sub-pass intermediate ships allowed: after each Pass, Lovable build can deploy. Cole can author against new nodes incrementally as they ship. Final wire-up Pass = end of H2.
 
-### Cycle H5 — Iteration on fidelity (1 session, however many cycles needed)
-- H5-1: Re-import branded test file. Visual diff against original.
-- H5-2: Identify any remaining gaps (likely smaller things: spacing variations, edge cases)
-- H5-3: Tighten parseHTML rules, adjust CSS, add missing affordances
-- H5-4: Repeat with the unbranded test file
-- H5-5: Test with a 3rd HTML file Cole brings (different vocabulary, validates generality)
+### Cycle H3 — NodeViews (edit + reader) for ENTIRE catalog (2-3 sessions)
 
-### Cycle H6 — Claude vocabulary prompt (1 session)
-- H6-1: Document BrainWise's class vocabulary in a markdown file (`BRAINWISE_HTML_VOCABULARY.md`)
-- H6-2: Distill into a Claude prompt template Cole can use: "Write a BrainWise newsletter article using these HTML class names: eyebrow, deck, byline, section-rule, domain-grid, index-row, callout, pullquote, video-embed, footer-meta. Map content to: [user describes content]."
-- H6-3: Test the prompt with 2-3 article drafts. Tune until Claude consistently produces import-clean HTML.
-- H6-4: Store the prompt template in the super-admin newsletter UI as a "Generate with AI" affordance for future use
+For every new node from H2, build edit NodeView (with drag handle, edit modal/affordances, slash menu wiring, toolbar wiring where applicable) + reader NodeView (read-only, no affordances). NodeView passes mirror H2 pass ordering for sub-ship discipline.
+
+- H3-NV-Pass1 through H3-NV-Pass8 — one NodeView pair per H2 pass
+- H3-NV-Final: AdminNewsletterArticle.tsx sidebar additions (all new article-level fields: eyebrow_text input, is_issue_based toggle, issue_label input, tags multi-input, masthead fields, theme_variant picker, default_layout_width picker)
+- H3-NV-Auto: `NewsletterArticle.tsx` (reader) auto-render logic (prepend Eyebrow if eyebrow_text set, prepend Masthead if masthead_publication set, append FooterMeta if is_issue_based=true, append AuthorBio always if author exists)
+
+### Cycle H4 — Image-only Edge Function + Modal refactor (1 session, 2-3 Lovable cycles)
+
+- H4-BE-1: NEW Edge Function `import-html-images` (Class A auth, super-admin gate, SSRF defense unchanged from convert-html-to-tiptap v2; 30-image / 10MB / 10s timeouts unchanged)
+- H4-BE-2: Returns `{resolutions: {url: {asset_id, failure}}}` map only — no DOM walking, no TipTap generation server-side
+- H4-BE-3: Deprecate + remove `convert-html-to-tiptap` Edge Function once new path verified
+- H4-FE-1: Refactor `ImportHtmlModal.tsx`: client (a) parses HTML via DOMParser in browser, (b) extracts image URLs, (c) calls `import-html-images` for resolutions, (d) rewrites img src in cloned DOM to asset_id refs, (e) calls TipTap `generateJSON(modifiedHtml, buildExtensions({editable:false}))`, (f) renders preview using reader NodeViews, (g) commits via `editorHandleRef.current?.setContent(newDoc)`
+- H4-FE-2: Stats display now computes from generateJSON result (image count = pre-pass; tag drops = generateJSON unknown-node stats if available; node-type breakdown shown to author for transparency)
+- H4-FE-3: Orphan-sweep parent enumeration audit (if any new content_asset_refs parents added)
+
+### Cycle H5 — Fidelity iteration (2-3 sessions, however many Lovable cycles needed)
+
+- H5-1: Re-import `ptp_test_article_alt_media.html`. Visual diff vs source: side-by-side screenshots, pixel-level discrepancies catalogued
+- H5-2: Patch parseHTML rules for any gaps (most likely needed: edge-case CSS class names BrainWise didn't anticipate; HTML5 elements not yet recognized)
+- H5-3: Patch CSS rendering for any visual mismatches (spacing, weights, alignments)
+- H5-4: Repeat with `ptp_test_article_alt.html` (unbranded version)
+- H5-5: Test with 3-5 NEW HTML files Cole brings (sourced from Substack, Medium, Ghost, Beehiiv, or fresh Claude-generated artifacts) to validate generality beyond the original test set
+- H5-6: Document any unresolvable gaps in `BRAINWISE_HTML_VOCABULARY.md` (for H6) — "if your source uses pattern X, do Y instead"
+
+### Cycle H6 — Claude vocabulary prompt + reader polish (1 session, 2-3 Lovable cycles)
+
+- H6-1: Document BrainWise's complete HTML class vocabulary in `BRAINWISE_HTML_VOCABULARY.md` — every class pattern recognized by parseHTML rules, with examples
+- H6-2: Distill into Claude prompt template: "Write a BrainWise newsletter article using these HTML class conventions: [full class list]. Output ONLY HTML, no Markdown. Use these structural patterns: [examples for each pattern]. Map content to: [user describes content]."
+- H6-3: Test prompt with 3-5 article drafts. Tune until Claude consistently produces import-clean HTML
+- H6-4: Store prompt template in super-admin newsletter UI as "Draft with Claude" affordance (sidebar button → modal with content-description input → calls Claude API directly via existing Anthropic API integration → result loads into HTML import modal pre-filled)
+- H6-5: Reader polish: any final visual touches surfaced during H5 fidelity testing
 
 ---
 
 ## 7. Estimated effort
 
+Revised after §4 expansion. Full catalog = ~33 new block nodes + 7 new marks + 6 node refinements + 6 new article fields. This is a real multi-session project. Effort scales roughly linearly with node count.
+
 | Cycle | Sessions | Lovable cycles | Risk | Notes |
 |---|---|---|---|---|
-| H1 (spec) | 0.5 | 0 | Low | Done |
-| H2 (schema) | 1 | 4-5 | Med | Schema breakage if migration order wrong |
-| H3 (nodeviews) | 1 | 5-6 | Med | Visual fidelity per node is finicky |
-| H4 (edge fn) | 1 | 2-3 | High | New Deno dep on TipTap-in-browser; image flow refactor |
-| H5 (iteration) | 1-2 | 3-5 | Med | Unknown unknowns from real-world HTML variants |
-| H6 (prompt) | 1 | 1 | Low | Mostly content/prompt engineering, not code |
-| **Total** | **5-6 sessions** | **15-20 cycles** | | |
+| H1 (spec) | 0.5 | 0 | Low | Done — spec is authoritative for entire arc |
+| H2 (schema + parseHTML, all nodes/marks) | 2-3 | 10-14 | Med-High | Largest cycle; all schemas defined; node-ordering matters per §4.13 |
+| H3 (NodeViews, edit affordances) | 2-3 | 10-14 | Med | One NodeView per node + slash menu + toolbar wiring; visual fidelity per node is finicky |
+| H4 (Edge Function refactor — client-side generateJSON) | 1 | 2-3 | High | New `import-html-images` Edge Function + ImportHtmlModal refactor; image flow change |
+| H5 (fidelity iteration) | 2-3 | 5-8 | Med | Re-import test files, identify gaps in parseHTML rules, patch + retest cycles; unknown unknowns from real-world HTML variants |
+| H6 (Claude vocabulary prompt + reader polish) | 1 | 2-3 | Low | Mostly prompt engineering + minor reader polish; produces `BRAINWISE_HTML_VOCABULARY.md` for future use |
+| **Total** | **8-13 sessions** | **30-42 Lovable cycles** | | |
+
+**Honest framing:** This is a 2-3 month project at typical session cadence. It's the right investment for prospect-facing best-in-class output, but it's not a 1-week sprint. Cole's confirmed scope decision (Session 95): build the full vocabulary, not MVP.
+
+**Sequencing flexibility:** H2 + H3 can be split into sub-passes per §4.13 (pass 1 → ship → pass 2 → ship → etc.) if Cole wants intermediate releases to author against. H4 must come AFTER at least pass 1 of H2 (some nodes available to parseHTML) but does NOT need to wait for full catalog.
 
 ---
 
-## 8. Deferred / explicitly out of scope
+## 8. Deferred — what we are NOT building in Group H
 
-**Skipped for Group H:**
-- `grain` overlay (decorative SVG noise on body bg) — page-level treatment, would require sitewide CSS, not a node
-- `hero` cover image with overlay — maps to existing `cover_asset_id` field at IMPORT TIME (rewrite during convert), not a body node
-- `topbar` masthead — would only matter for "Synapse-style" newsletters; can be expressed via eyebrow + tags
-- Image gallery (multi-image grid) — defer to a future Group I
-- Image compare slider (before/after) — too narrow a use case
-- Tables (`<table>`, `<tr>`, `<td>`) — TipTap has these built-in; we can drop in `@tiptap/extension-table` if needed in a single line, but no special BrainWise styling for v1
-- Footnotes with backreferences — defer to future
-- LaTeX/Math equations — defer to future
-- Code syntax highlighting — defer (current `codeBlock` is plain)
+Group H builds the complete node catalog. The only items deferred are ones that are out of scope for "newsletter editorial system" entirely:
 
-**Other deferred concerns:**
-- Email (G8) compatibility: the new nodes need email-safe renderers. Defer that to G8 itself.
-- Reader-side mobile responsiveness: each new node needs a mobile design. Spec doesn't lock these down; defer to H3 build with "make it work on 320px+" as the criterion.
-- Print stylesheets: defer
-- RTL language support: defer
+**Page-level treatments (CSS, not nodes):**
+- `grain` decorative noise overlay — page-level CSS treatment, not nodal
+- Hero cover image with overlay — maps to existing `cover_asset_id` article field at import time, not body node
+- Background patterns / textures on body — page-level, can be added later via theme_variant
 
----
+**Phase 2 enhancements (schema ships in H2, full implementation later):**
+- Poll backend tables + voting RPCs (schema ships in H2, voting backend in a follow-up Group I or J)
+- KaTeX integration for Math node (schema ships, raw LaTeX fallback display only)
+- Prism/Shiki syntax highlighting (schema ships, plain monospace until phase 2)
+- Chart.js rendering for Chart node (schema ships with image fallback, dynamic rendering phase 2)
+- Image lightbox / zoom on gallery click (schema ships, click handler phase 2)
 
+**Out of scope for newsletter system entirely (handled elsewhere):**
+- Comment threads on articles (already declined product decision Q8)
+- Reaction emojis / claps (not relevant for editorial content)
+- Real-time collaborative editing (single-author workflow only)
+- Translation / i18n at the article level (English only for v1)
+- AMP versions (deprecated by Google)
+- Print stylesheets (defer until reader complaints)
+
+**Adjacent build queue items that pair with H6 (Claude vocabulary prompt):**
+- `users.bio` column + author bio edit UI (existing deferred item — promote to H2 prereq IF AuthorBio block ships in v1; otherwise carry separately)
+- Internal subscriber inclusion in dispatch (existing G8 deferred item)
+- `newsletter_categories` v2 (existing deferred — relates to RelatedArticles auto-by-category mode)
 ## 9. Open questions / decisions to make in execution
 
 1. **DomainGrid vs KeyMoments — do we keep both?**  
