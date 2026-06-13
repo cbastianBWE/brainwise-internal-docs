@@ -58,3 +58,15 @@ Explicitly out of scope: a broad `org_id` retrofit plus RLS rewrite across the l
 ## 7. Net
 
 5.3 is small: one real policy fix (`teams`/`team_members`), one mechanical read-only audit pass (dashboard RPCs/views + insert checks), and one decision that actually lands in items 6/7 (stamp org_id for stable attribution). It is not a multi-session migration arc. That reframing is the main outcome of this design pass.
+
+## 8. Execution status (Session 133)
+
+**Step 1 applied and verified.** Migration `whitelabel_5_3_bound_teams_team_members_to_org` bounded the `teams` ALL policy and the three `team_members` write policies (insert/update/delete) so the `company_admin`/`org_admin` branch requires `organization_id = current_user_org_id()` (the team's org for `team_members`), preserving the super-admin and team-manager branches. A rolled-back RLS functional test, run as a real Test Corp `company_admin` against a synthetic second org, confirmed: cross-org team update and delete touch 0 rows, cross-org insert is denied by WITH CHECK, own-org update touches 1 row, own-org insert is allowed, and the `team_members` bound predicate sees the own-org team but not the cross-org team. No residue.
+
+**Step 2 audit complete, clean.** Three layers checked read-only:
+- *Views.* All four member-exposing views are `security_invoker=true`, so they inherit the querier's RLS rather than running with owner rights. No bypass.
+- *Org-param SECDEF functions.* Every member-data reader and mutation taking an org parameter guards inline with an admin-role check plus super-admin-or-`v_caller_org = p_organization_id`. Verified: `get_nai_epn_delta`, `get_ptp_leader_workforce_delta` (both also apply a 5-participant suppression floor), `assign_executive_perspective_assessment` (also rejects assignees outside the target org), `org_set_mfa_required`, `reconcile_supervisors_for_org`. They inline the org compare rather than calling `current_user_org_id()`, so a helper-name search alone would miss the guard; the bodies were read directly.
+- *Insert checks.* Core member-writable tables tie inserts to the owner via `auth.uid()`; the remaining member tables have no authenticated insert path at all (writes go through SECDEF RPCs or service-role), which is tighter.
+- *Optional tidy-ups, not leaks.* Confirm `EXECUTE` is revoked from `authenticated`/`anon` on internal helpers (`log_super_admin_action`, `seat_count_*`, `org_has_feature`); the `ops_*` helpers belong to the separate `operations.*` externalization arc.
+
+**Verdict: 5.3 is closed.** Step 1 fixed the one real gap, step 2 confirmed the rest of the tenant-isolation surface is sound, and step 3 (org_id attribution stamping) is deferred into items 6/7 by design.
