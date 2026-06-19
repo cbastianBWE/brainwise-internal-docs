@@ -14,11 +14,15 @@ INT-8 (activation poll), the last Phase 3 item, was designed this session but DE
 
 ## Session 145 opening priorities, in order
 
-### 1. Start Phase 4
+### 1. Start Phase 4 (INT-2 deferred to the build queue)
 
-Cole's directive: next session starts Phase 4. Per the Session 143 handoff, Phase 4 of the Lesson Experience uplift is INT-2 (personalization), INT-6 (branching), INT-7 (confidence), and VIS-4 (media-beside-text two-column). Confirm the exact Phase 4 scope and order against the build queue at session open before building; do not assume it beyond what the docs define.
+Cole's directive: next session starts Phase 4, but INT-2 (instrument-result personalization) is DEFERRED to the build queue for later. Phase 4 this session is the remaining three items, ordered lightest to heaviest:
 
-Each new block type still triggers §61 5-surface parity (lesson_block_types row + config schema; editor form + blockTypeMeta; BlockRenderer editor+trainee; draft-lesson-block; scaffold-lesson-outline + expand-lesson-from-outline). ai-authoring-chat stays exempt.
+- **VIS-4 media-beside-text two-column.** A layout block pairing media (image) beside text. Likely a new block type (so §61 parity), but visual/static, the lightest of the three.
+- **INT-7 confidence-weighted knowledge check.** Decide first whether it is a new block type or an extension of the existing `knowledge_check` (which already has the 7 question types and the ranking/timeline drag models). Medium weight.
+- **INT-6 branching scenario.** The HEAVIEST and built last. The existing `scenario` block (Session 70) is deliberately LINEAR (a list of moments); INT-6 branching is the graph-shaped version where a choice routes to a different next moment, which is a different data shape, not an extension of the linear block. Present design locks before any build (the INT-8 treatment); it may not finish in one session.
+
+Each new block type triggers §61 5-surface parity (lesson_block_types row + config schema; editor form + blockTypeMeta; BlockRenderer editor+trainee; draft-lesson-block; scaffold-lesson-outline + expand-lesson-from-outline). ai-authoring-chat stays exempt. Confirm exact scope/order against the build queue at session open; do not assume beyond what the docs define.
 
 ### 2. INT-8 activation poll (on the queue, build when prioritized)
 
@@ -58,6 +62,7 @@ If the smoke test surfaces anything, fix it in the same arc.
 
 ## What's NOT in scope for Session 145
 
+- INT-2 (instrument-result personalization): DEFERRED to the build queue for later, at Cole's direction. Not built this session.
 - INT-8 build itself, until prioritized (it sits on the queue with the locked design).
 - The standing carryforwards untouched this arc: SCORM export + external launch/tracking API; in-system support chatbot + admin capture; BQ-SUPERVISOR-DASH (supervisor access to company dashboards with a per-supervisor disable toggle); the Operations externalization arc (tenant-scoped RLS, non-super-admin routing, provisioning, billing; Stripe Connect / per-tenant payment collection deferred); Doc-1 invoice live refund test (pending a real Stripe-paid transaction); certificate date-placement verification; the `newsletter-sitemap` STATIC_ROUTES manual-edit reminder (still standing whenever a new public marketing page or sitemap/SEO work comes up).
 
