@@ -159,3 +159,89 @@ Insert these in Romantic mode, after the signal cards and before the standard ne
 6. For Romantic, add the intimacy and spousal next-steps sections under the guardrails.
 7. Fill every `{{TOKEN}}` from the branding supplied this session. Choose nothing.
 8. Confirm: no em dashes, no branded IP, risk-not-diagnosis throughout.
+
+---
+
+## Appendix A: Visual implementation (exact build)
+
+This is the authoritative build detail for the visuals named in Sections 2.2 and 3.3. Reproduce the geometry, opacities, stroke widths, font sizes, motifs, captions, and behavior exactly. Only colors and fonts are tokens. All example numbers reproduce the approved reports; real data replaces them.
+
+### A.0 Conventions and token mapping
+
+All visuals are inline SVG drawn at runtime, set to width 100 percent and made responsive by the viewBox (no fixed pixel width). Coordinates below are in viewBox units.
+
+Color tokens (the working files carry placeholder hex values; replace each with the token):
+- Domain colors: Protection `{{COLOR_PROTECTION}}`, Participation `{{COLOR_PARTICIPATION}}`, Prediction `{{COLOR_PREDICTION}}`, Purpose `{{COLOR_PURPOSE}}`, Pleasure `{{COLOR_PLEASURE}}`.
+- Signal colors: Collision `{{COLOR_COLLISION}}`, Friction `{{COLOR_FRICTION}}`, Complementarity `{{COLOR_COMPLEMENTARITY}}`, Blind spot `{{COLOR_BLINDSPOT}}`, Saturating `{{COLOR_SATURATING}}`, Alignment `{{COLOR_ALIGNMENT}}`.
+- Person colors: A `{{COLOR_PERSON_A}}`, B `{{COLOR_PERSON_B}}`.
+- The team profile shape fill and the bar average markers use `{{COLOR_PRIMARY}}`.
+- Structural neutrals: hairlines, gridlines, and spokes use `{{COLOR_LINE}}`; faint scale numbers and small captions use `{{COLOR_MUTED}}`; data labels use `{{COLOR_TEXT}}`; dot halos use the card background (white). Where a caption is a darker shade of a signal color, use that signal token.
+
+Fonts: axis labels, value labels, and headings use `{{FONT_HEADING}}`; scale numbers, captions, and body text use `{{FONT_BODY}}`.
+
+Tooltip behavior (all charts): a div positioned absolutely inside a position-relative wrapper. On a marker's mouseenter, set its HTML and place it at (cursorX minus wrapper-left plus 12, cursorY minus wrapper-top minus 10), then show it; on mouseleave, hide it. All hoverable markers use a pointer cursor and a white halo stroke.
+
+Radial helpers (used by triangle and pentagon): for N axes, the angle of axis i is (-90 + i times 360 divided by N) degrees, so axis 0 points straight up and the rest go clockwise. A point at axis i and radius r is (cx plus r cosine(angle), cy plus r sine(angle)).
+
+### A.1 Team triangle (3-axis radial)
+viewBox 0 0 440 430. Center cx 220, cy 205, max radius R 140, N 3. Axis order: 0 Protection (top), 1 Participation (lower right), 2 Prediction (lower left).
+- Domain wedges: for each axis, a pie slice centered on the axis spanning plus and minus 180/N degrees out to R, filled the domain color at 0.10 opacity. Path form: move to center, line to the R point at (angle minus pi/N), arc (R R 0 0 1) to the R point at (angle plus pi/N), close.
+- Gridlines: concentric circles at radius R times g/100 for g in 25, 50, 75, 100, stroke `{{COLOR_LINE}}` width 1, no fill. Print g at (cx plus 3, cy minus R times g/100 plus 3), size 9, `{{COLOR_MUTED}}`.
+- Spokes: line from center to the R point of each axis, stroke `{{COLOR_LINE}}` width 1.
+- Profile shape: polygon through each axis point at radius R times value/100, fill `{{COLOR_PRIMARY}}` at 0.14, stroke `{{COLOR_PRIMARY}}` width 2.5, round joins.
+- Vertex markers: circle radius 6 at each profile point, fill the domain color, white stroke width 2. Hover shows "<b>{domain}</b><br>team average {value}".
+- Axis labels: at radius R plus 24, size 13, weight 600, `{{FONT_HEADING}}`, domain color, anchored center, y plus 4.
+- Value labels: at radius (R times value/100) offset outward 16 (for the top axis, offset up 16 instead), size 13, weight 700, domain color, center.
+- Example values: Protection 58, Participation 44, Prediction 61.
+
+### A.2 Dimension agreement bars
+viewBox 0 0 720 210. Plot from x 140 to x 690, so x of value v is 140 plus v/100 times 550. First row top 24, row height 58.
+- Vertical gridlines at v in 0, 25, 50, 75, 100, from y 16 to y past the last row, stroke `{{COLOR_LINE}}` width 1; scale number above at y 12, size 11, `{{COLOR_MUTED}}`, center.
+- Per domain, with row center cy at top plus index times 58 plus 16:
+  - Domain name at x 12, y cy plus 2, size 14, weight 500, `{{COLOR_TEXT}}`.
+  - Agreement tag at x 12, y cy plus 18, size 11, `{{COLOR_MUTED}}`: if range (hi minus lo) is 40 or more "members vary a lot", else 25 or more "some variation", else "fairly aligned".
+  - Range band: rounded rect from x of lo to x of hi, y cy minus 9, height 18, corner radius 9, fill the domain color at 0.16. Hover shows "{domain} range<br><b>{lo} to {hi}</b>".
+  - Average marker: circle radius 8 at x of avg, fill `{{COLOR_PRIMARY}}`, white stroke 2. Hover shows "{domain} average<br><b>{avg}</b>".
+  - Average value label above the marker at y cy minus 14, size 12, weight 700, `{{COLOR_PRIMARY}}`, center.
+- Example: Protection avg 58 range 41 to 72; Participation avg 44 range 22 to 68; Prediction avg 61 range 38 to 88.
+- Optional per-member dots: one small dot per member at x of their score on the bar, hover showing name and score. This is the only place individual member scores are plotted.
+
+### A.3 Team signal cards (six)
+Each card is one SVG, viewBox 0 0 320 84. Shared frame: a baseline at y 50 from x 24 to x 296, stroke `{{COLOR_LINE}}` width 2, round caps; the word "Lower" at (24, 72) and "Higher" right-anchored at (296, 72), size 10, `{{COLOR_MUTED}}`.
+Member dots are radius 6.5, fill the signal color at 0.9, white stroke 1.5. A cluster of n dots is laid out in rows of three: dot k sits at x equal to clusterX plus ((k mod 3) minus 1) times 9, and y equal to 43 minus floor(k/3) times 11 (that is, stacked upward from just above the baseline).
+- Collision (`{{COLOR_COLLISION}}`): cluster of 10 at clusterX 250; a star glyph at (289, 40) size 17; three faint converging lines from near the cluster (x 266, y 40 offset by minus 8, 0, plus 8) to the star (x 282, y 37), width 1.5, opacity 0.5.
+- Friction (`{{COLOR_FRICTION}}`): two clusters of 6 at clusterX 78 and 236; two arrowheads in the gap pointing at each other, a right-pointing head at x 150 and a left-pointing head at x 170, both at y 41, width 2.5, round. An arrowhead is a two-segment open path 7 units wide and 5 tall.
+- Complementarity (`{{COLOR_COMPLEMENTARITY}}`): two clusters of 6 at 78 and 236; a bold plus sign at (160, 47) size 22 weight 700; an arc above, path "M74 20 Q160 4 240 20", width 1.5, opacity 0.5; caption "one complete team" at (160, 15) size 10, center.
+- Blind spot (`{{COLOR_BLINDSPOT}}`): cluster of 10 at clusterX 70; a dashed empty rounded rect at x 178, y 20, width 116, height 42, radius 9, stroke width 1.2, dash "4 4", opacity 0.55; caption "no one here" at (236, 45) size 11, opacity 0.65, center.
+- Saturating (`{{COLOR_SATURATING}}`): cluster of 10 at clusterX 248; caption "everyone high then no one speaks" at (160, 14) size 10, center.
+- Alignment (`{{COLOR_ALIGNMENT}}`): cluster of 10 at clusterX 208 (a single mid-high cluster, not two); an arc "M170 24 Q208 10 246 24" width 1.5, opacity 0.6; caption "shared ground" at (208, 16) size 10, center.
+Each card's body text (the plain "what it is" line and the "Do this" line) sits below the SVG in the card, per Section 2.2.
+
+### A.4 Optional team signal map (scatter, inside the expander)
+viewBox 0 0 760 440. Plot x 58 to 730, y top 40 to bottom 370, maximum spread shown 36. X of mean v is 58 plus v/100 times 672. Y of spread s is 370 minus s/36 times 330 (higher spread sits higher).
+- Zone shading: a faint blind-spot rectangle in the low-left, a faint collision rectangle in the low-right, and a faint divergent rectangle across the top, each in the matching signal color at about 0.04 to 0.05 opacity.
+- Bottom and left axis lines `{{COLOR_LINE}}`. X scale numbers 0 to 100 below the axis. X axis title "Team average then scarce or shared", Y axis title "Spread" rotated, both `{{COLOR_MUTED}}`. Zone labels "Blind spots", "Collision", and "Divergent (friction / complementarity)" in darker shades of the matching signal colors.
+- Points: circle radius 9, fill the signal color at 0.85, white stroke 2. Hover shows "<b>{facet}</b><br>avg {mean} times spread {spread}<br>{signal}".
+- Example points (mean, spread, signal): Voice and influence 86, 6, collision; Recognition need 81, 9, collision; Correctness need 74, 11, collision; Situational awareness 19, 9, blind; Short-term loss aversion 24, 12, blind; Well-being vigilance (others) 28, 10, blind; Consistency need 52, 30, friction; Commitment reliability 50, 26, friction; Ambiguity tolerance 47, 28, friction; Action orientation 49, 31, complementarity; Risk tolerance 62, 27, complementarity; Status quo and stability 56, 29, complementarity; Embarrassment avoidance 78, 8, saturating; Equality and reciprocity 80, 8, alignment; Need to trust others 78, 10, alignment.
+
+### A.5 Paired pentagon (5-axis radial, two people)
+viewBox 0 0 440 440. Center cx 220, cy 222, R 135, N 5. Axis order: 0 Protection (top), then clockwise 1 Participation, 2 Prediction, 3 Purpose, 4 Pleasure.
+- Domain wedges: same pie-slice construction as the triangle, domain color at 0.10.
+- Gridlines: at g in 25, 50, 75, 100, a closed pentagon polygon through each axis point at radius R times g/100, stroke `{{COLOR_LINE}}` width 1, no fill (pentagon rings, not circles).
+- Spokes and axis labels: spoke to each R point, label at radius R plus 24, size 12.5, weight 600, domain color, center.
+- Two series, drawn in the order B then A so A sits on top. Each series is a polygon through its axis points at radius R times value/100, fill the person color at 0.13, stroke the person color width 2.5, round joins. Vertex dots radius 5, person color, white stroke 1.5. Hover shows "<b>{person}</b><br>{domain}: {value}".
+- Example: Person A `{{COLOR_PERSON_A}}` values Protection 59, Participation 41, Prediction 50, Purpose 52, Pleasure 55. Person B `{{COLOR_PERSON_B}}` values 40, 70, 75, 45, 38.
+
+### A.6 Paired signal cards (four, two-dot version)
+Same card frame as A.3 (viewBox 320 by 84, baseline, Lower and Higher labels). Here each dot is radius 8 at y 42, fill the signal color at 0.9, white stroke 2.
+- Collision (`{{COLOR_COLLISION}}`): dots at x 244 and 262; star at (290, 38) size 17; two short converging lines from (270, 42 offset minus 6 and plus 6) to (283, 36), opacity 0.5; caption "both high" at (150, 38), `{{COLOR_MUTED}}`.
+- Complementarity (`{{COLOR_COMPLEMENTARITY}}`): dots at x 70 and 250; bold plus at (160, 47) size 22; arc "M66 22 Q160 6 254 22" opacity 0.5; caption "two halves, one whole" at (160, 17).
+- Blind spot (`{{COLOR_BLINDSPOT}}`): dots at x 64 and 82; dashed empty rounded rect x 170, y 20, width 124, height 42, radius 9, dash "4 4", opacity 0.55; caption "neither one here" at (232, 45), opacity 0.65.
+- Alignment (`{{COLOR_ALIGNMENT}}`): dots at x 226 and 248; arc "M220 22 Q237 8 254 22" opacity 0.6; caption "both high, shared ground" at (150, 38).
+
+### A.7 Optional paired distance chart (dumbbell, inside the expander)
+viewBox 0 0 760 320. Plot x 190 to 620, so x of value v is 190 plus v/100 times 430. First row top 26, row height 44. Rows are ordered by descending distance between A and B.
+- Vertical gridlines at 0, 25, 50, 75, 100 with scale numbers above, `{{COLOR_LINE}}` and `{{COLOR_MUTED}}`.
+- Per row at row center cy equal to 26 plus index times 44: facet label at x 12, y cy plus 4, size 12.5, `{{COLOR_TEXT}}`; a connector line from x of A to x of B, stroke `{{COLOR_LINE}}` width 2; the text "{distance} apart" at the midpoint, y cy minus 8, size 10, `{{COLOR_MUTED}}`, center; a dot radius 7 at x of A in `{{COLOR_PERSON_A}}` and a dot radius 7 at x of B in `{{COLOR_PERSON_B}}`, white stroke 1.5. Hover shows "Person A · <b>{value}</b>" or "Person B · <b>{value}</b>".
+- Example rows (A, B): Action orientation 9, 82; Recognition need 86, 30; Consistency need 92, 40; Risk tolerance 91, 45; Voice and influence 93, 88; Situational awareness 11, 15; Trust in each other 82, 79.
+
