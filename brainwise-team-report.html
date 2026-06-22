@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Threat Profile Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#021F36; --orange:#F5741A; --sand:#F9F7F1; --teal:#006D77; --yellow:#FFB703;
+    --ink:#1d2b38; --muted:#5d6b76; --line:#e4ded2;
+    --prot:#006D77; --part:#F5741A; --pred:#185FA5;
+    --collision:#F5741A; --blind:#021F36; --friction:#C77F1A; --compl:#006D77; --align:#9C9683; --sat:#9E2B25;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--sand);color:var(--ink);font-family:"Inter",sans-serif;line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px 90px;}
+  h1,h2,h3,.eyebrow{font-family:"Poppins",sans-serif;}
+  .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--orange);font-weight:600;margin:0 0 8px;}
+  h2{font-size:23px;font-weight:600;color:var(--navy);margin:0 0 6px;}
+  h3{font-size:16px;font-weight:600;color:var(--navy);margin:0 0 4px;}
+  p{margin:0 0 14px;}
+  section{margin-top:54px;}
+  .lede{color:var(--muted);font-size:15px;max-width:64ch;}
+  .ai{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:8px;}
+  .ai:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--teal);}
+
+  .hero{background:var(--navy);color:#fff;border-radius:0 0 18px 18px;padding:46px 24px 40px;}
+  .hero-inner{max-width:880px;margin:0 auto;}
+  .mark{display:flex;gap:5px;align-items:flex-end;margin-bottom:24px;}
+  .mark i{display:block;width:9px;height:9px;border-radius:50%;background:var(--orange);}
+  .mark i:nth-child(2){width:7px;height:7px;opacity:.85;}.mark i:nth-child(3){width:5px;height:5px;opacity:.6;}
+  .hero .eyebrow{color:var(--yellow);}
+  .hero h1{font-family:"Poppins";font-size:38px;font-weight:700;line-height:1.05;margin:0 0 14px;}
+  .hero h1 span{color:var(--orange);}
+  .hero p{color:#c7d2dc;max-width:60ch;font-size:15px;}
+  .meta{display:flex;flex-wrap:wrap;gap:28px;margin-top:26px;}
+  .meta div span{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--yellow);font-weight:600;margin-bottom:3px;}
+  .meta div b{font-family:"Poppins";font-weight:600;font-size:16px;color:#fff;}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 18px;position:relative;}
+  .chart-tip{position:absolute;display:none;pointer-events:none;background:var(--navy);color:#fff;border-radius:7px;padding:6px 9px;font-size:12px;line-height:1.4;white-space:nowrap;z-index:5;}
+  .legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin-top:12px;font-size:12.5px;color:var(--muted);justify-content:center;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+
+  ul.clean{list-style:none;padding:0;margin:0;}
+  ul.clean li{position:relative;padding-left:26px;margin-bottom:13px;font-size:15px;}
+  ul.clean li:before{content:"";position:absolute;left:2px;top:9px;width:9px;height:9px;border-radius:50%;background:var(--orange);}
+
+  .step{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px 8px;margin-bottom:16px;border-top:4px solid var(--navy);}
+  .step-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px;}
+  .step-num{font-family:"Poppins";font-weight:700;font-size:28px;color:var(--orange);line-height:1;}
+  .step-sig{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;border-radius:20px;padding:3px 10px;}
+  .step ul{margin:10px 0 6px;padding-left:0;list-style:none;}
+  .step li{position:relative;padding-left:22px;margin-bottom:10px;font-size:14px;}
+  .step li:before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:1px;background:var(--teal);}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.split{grid-template-columns:1fr;}.hero h1{font-size:30px;}}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .panel h3{margin-bottom:6px;}
+  .panel p{font-size:14px;margin:0;}
+  .tagline{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px;}
+  .avoid{background:#fbf0e4;border-radius:10px;padding:12px 14px;margin-top:14px;}
+  .avoid b{color:var(--navy);}
+  .avoid ul{margin:6px 0 0;padding-left:18px;}
+  .avoid li{font-size:13.5px;margin-bottom:6px;}
+  .foot{margin-top:64px;border-top:1px solid var(--line);padding-top:18px;font-size:12px;color:var(--muted);}
+  .shape{font-size:13px;border-radius:8px;padding:8px 12px;margin:0 0 4px;}
+  .sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.sig-grid{grid-template-columns:1fr;}}
+  .sigcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;border-top:4px solid var(--navy);}
+  .sigcard h3{margin:8px 0 6px;font-size:18px;}
+  .sig-what{font-size:13.5px;color:var(--muted);margin:8px 0 10px;}
+  .sig-do{font-size:13.5px;background:#f4f1e8;border-radius:9px;padding:9px 12px;}
+  .sig-do b{color:var(--navy);}
+  details.more{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:2px 18px;}
+  details.more summary{cursor:pointer;padding:14px 0;font-weight:600;color:var(--navy);font-family:"Poppins";font-size:14px;}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="mark"><i></i><i></i><i></i></div>
+    <p class="eyebrow">Team Threat Profile</p>
+    <h1>Team <span>Report</span></h1>
+    <p>How this team, as a group, scans for threat and reward under pressure, uncertainty, and change. Built from every member's Personal Threat Profile and mapped to the BrainWise 5P model.</p>
+    <div class="meta">
+      <div><span>Team</span><b>SymbioKinetics · Leadership</b></div>
+      <div><span>Members</span><b>12</b></div>
+      <div><span>Scope</span><b>47 work-context facets</b></div>
+      <div><span>Generated</span><b>June 22, 2026</b></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <p class="eyebrow">Team profile</p>
+    <h2>The three threat domains</h2>
+    <p class="lede">Center is zero, the outer ring is 100. Each point is the team's average in that domain, sitting in its own colored wedge. The team report covers the three threat domains, because the brain reaches Purpose and Pleasure only once these are met.</p>
+    <div class="card" style="text-align:center">
+      <svg id="triangle" viewBox="0 0 440 430" width="100%" style="max-width:460px" role="img" aria-label="Triangle radial chart of the three threat domain averages"></svg>
+      <div class="chart-tip" id="triTip"></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--prot)"></span>Protection 58</span>
+        <span><span class="dot" style="background:var(--part)"></span>Participation 44</span>
+        <span><span class="dot" style="background:var(--pred)"></span>Prediction 61</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How much the team agrees, by domain</h2>
+    <p class="lede">The triangle shows the team's average. These bars add how much members agree. A wide band means people are spread out on that domain, a tight band means they sit close together.</p>
+    <div class="card">
+      <svg id="dimbars" viewBox="0 0 720 210" width="100%" role="img" aria-label="Average and spread for each threat domain"></svg>
+      <div class="chart-tip" id="dimTip"></div>
+      <div class="legend">
+        <span><span class="dot" style="background:#9C9683;opacity:.45"></span>Range, lowest to highest member</span>
+        <span><span class="dot" style="background:var(--navy)"></span>Team average</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="ai">AI interpretation</p>
+    <h2>Team profile overview</h2>
+    <p>This team reads the world primarily through Prediction (average 61), with Protection close behind (58) and Participation the softest and most uneven of the three (44). In plain terms, the group is wired to want clarity, influence, and a say in how decisions get made. It is reasonably alert to fairness and risk. It is least settled on belonging and trust, which is also where its members differ most. Following the 5P principle, the team will not reach a shared sense of purpose and momentum until that Participation floor steadies.</p>
+    <p>The pattern worth watching is not only where the team disagrees, it is where it quietly agrees. The need to be heard, to be recognized, and to be right all sit high with little variation, which turns airtime, credit, and being correct into scarce resources the group competes for rather than shares. At the same time the team is uniformly low on tracking what is going on around it and on near-term downside, so those risks are unwatched by default. Where the team genuinely splits, on pace and on appetite for change, the split is clean enough to be turned into roles rather than left as friction.</p>
+  </section>
+
+  <section>
+    <p class="ai">AI interpretation</p>
+    <h2>What it means for the team</h2>
+    <ul class="clean">
+      <li>The team's biggest risk is collision, not apathy. A room of people who all need voice, credit, and to be right will compete for the same scarce things unless the structure shares them out.</li>
+      <li>The team is most exposed where it is silently unanimous. Nobody is naturally watching the surroundings or the near-term downside, so those tend to arrive as surprises.</li>
+      <li>The team's real differences in pace and appetite for change are an asset in waiting. Named and assigned, they become a division of labor instead of recurring friction.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>What we found, and what to do</h2>
+    <p class="lede">Four patterns showed up in this team. Each card is a simple picture of how the group sits, what it means, and the one move that addresses it.</p>
+    <div class="sig-grid">
+      <div class="sigcard" style="border-top-color:var(--collision)">
+        <h3 style="color:var(--collision)">Collision</h3>
+        <svg id="sigCollision" viewBox="0 0 320 84" width="100%" role="img" aria-label="Everyone crowded high, competing for one thing"></svg>
+        <p class="sig-what">Almost everyone scores high on the same scarce thing. Here it is the need to be heard. All twelve are crowded at the top, reaching for the same floor.</p>
+        <div class="sig-do"><b>Do this:</b> share it on a schedule. Turn-taking and rotating who runs the meeting, so airtime stops being a contest.</div>
+      </div>
+      <div class="sigcard" style="border-top-color:var(--friction)">
+        <h3 style="color:var(--friction)">Friction</h3>
+        <svg id="sigFriction" viewBox="0 0 320 84" width="100%" role="img" aria-label="Two camps pulling against each other"></svg>
+        <p class="sig-what">The team is split into two camps that pull against each other. Here it is how consistent to be. Half want tight standards, half want flexibility.</p>
+        <div class="sig-do"><b>Do this:</b> name the split out loud and agree one standard together, so it stops being re-fought on every decision.</div>
+      </div>
+      <div class="sigcard" style="border-top-color:var(--compl)">
+        <h3 style="color:var(--compl)">Complementarity</h3>
+        <svg id="sigCompl" viewBox="0 0 320 84" width="100%" role="img" aria-label="Two halves that fit together"></svg>
+        <p class="sig-what">The team is split here too, but the difference is a strength. Here it is pace. One group moves fast, the other thinks first. Together they cover both.</p>
+        <div class="sig-do"><b>Do this:</b> give each group the work it is built for. Movers drive execution, thinkers handle planning and review.</div>
+      </div>
+      <div class="sigcard" style="border-top-color:var(--blind)">
+        <h3 style="color:var(--blind)">Blind spot</h3>
+        <svg id="sigBlind" viewBox="0 0 320 84" width="100%" role="img" aria-label="Everyone low, the top is unwatched"></svg>
+        <p class="sig-what">Almost everyone scores low, so no one is watching this. Here it is awareness of what is changing around the team. The risk arrives unseen.</p>
+        <div class="sig-do"><b>Do this:</b> assign it to one person on purpose. No one will pick it up on their own.</div>
+      </div>
+      <div class="sigcard" style="border-top-color:var(--sat)">
+        <h3 style="color:var(--sat)">Saturating</h3>
+        <svg id="sigSat" viewBox="0 0 320 84" width="100%" role="img" aria-label="Everyone high on the same thing, which becomes silence"></svg>
+        <p class="sig-what">Almost everyone scores high on the same thing, and here that is the problem. On the fear of looking foolish, when everyone is high no one risks speaking up. It looks like harmony, but it is silence.</p>
+        <div class="sig-do"><b>Do this:</b> make it safe to be wrong. Invite dissent by name and reward whoever raises the awkward point.</div>
+      </div>
+      <div class="sigcard" style="border-top-color:var(--align)">
+        <h3 style="color:var(--align)">Alignment</h3>
+        <svg id="sigAlign" viewBox="0 0 320 84" width="100%" role="img" aria-label="Everyone clustered together at a healthy level, a shared strength"></svg>
+        <p class="sig-what">Here the team is tightly clustered at a healthy level. Everyone trusts each other and values fair treatment. This is genuine common ground, the strength to build on.</p>
+        <div class="sig-do"><b>Do this:</b> name it and lean on it. Use this shared ground to carry the harder conversations above.</div>
+      </div>
+    </div>
+    <details class="more">
+      <summary>Show the full signal map (every facet at once)</summary>
+      <div style="position:relative;padding-bottom:12px">
+        <p class="lede" style="margin-top:6px">The analyst's view behind the four cards: each facet placed by team average (across) and spread (up), colored by signal.</p>
+        <svg id="scatter" viewBox="0 0 760 440" width="100%" role="img" aria-label="Signal map of all facets by team mean and spread"></svg>
+        <div class="chart-tip" id="scatTip"></div>
+        <div class="legend">
+          <span><span class="dot" style="background:var(--collision)"></span>Collision</span>
+          <span><span class="dot" style="background:var(--blind)"></span>Blind spot</span>
+          <span><span class="dot" style="background:var(--friction)"></span>Friction</span>
+          <span><span class="dot" style="background:var(--compl)"></span>Complementarity</span>
+          <span><span class="dot" style="background:var(--sat)"></span>Saturating</span>
+          <span><span class="dot" style="background:var(--align)"></span>Aligned</span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <p class="ai">AI interpretation</p>
+    <h2>Three suggested next steps</h2>
+    <div class="step">
+      <div class="step-head"><span class="step-num">1</span><div><h3>Build an airtime and credit architecture</h3><span class="step-sig" style="background:#fdeadd;color:#9e4310;">Addresses collision</span></div></div>
+      <ul>
+        <li>Use a written round before open discussion on real decisions, so the highest-voice members do not set the frame first.</li>
+        <li>Rotate facilitation rather than defaulting to the loudest or most senior person.</li>
+        <li>Distribute recognition on a standing cadence, naming specific contributions, so credit stops being a scarce prize.</li>
+        <li>Separate being heard from being decided: capture dissent in writing, then commit, so people feel counted even when the call goes another way.</li>
+      </ul>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="step-num">2</span><div><h3>Assign the unwatched gauges</h3><span class="step-sig" style="background:#dde3e8;color:#021F36;">Addresses blind spots</span></div></div>
+      <ul>
+        <li>Name an owner for situational awareness, responsible for surfacing what is changing in the market, the client, and the org each cycle.</li>
+        <li>Require a one-line risk-and-cost note on any decision above a set threshold.</li>
+        <li>Add a standing "what are we not seeing" prompt to retrospectives, since the team will not raise it on its own.</li>
+        <li>Put one external check on the blind-spot areas rather than relying on the team to catch what it is wired to miss.</li>
+      </ul>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="step-num">3</span><div><h3>Turn the pace-and-change split into roles</h3><span class="step-sig" style="background:#d5e7e8;color:#024d54;">Friction into complementarity</span></div></div>
+      <ul>
+        <li>Map each member on pace (move fast versus think first) and appetite for change, and make the map visible.</li>
+        <li>Route execution-heavy work to the movers, and planning, sequencing, and review to the deliberators.</li>
+        <li>Agree an explicit rule for when the team moves fast and when it slows, so tempo stops being relitigated each time.</li>
+        <li>Pair opposite types on high-stakes work so the difference operates as a built-in check.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <p class="ai">AI interpretation</p>
+    <h2>How this team communicates</h2>
+    <div class="split">
+      <div class="panel">
+        <div class="tagline" style="color:var(--teal)">In general</div>
+        <p>This team is verbal, opinionated, and standards-driven. With voice, recognition, and the need to be right all high and shared, conversation tends to be a contest of strong views, and the most comfortable speakers set the frame quickly. Because the team is low on tracking context, members often arrive with different unspoken assumptions and do not realize it. They communicate best when an explicit standard or framework is on the table to organize around.</p>
+      </div>
+      <div class="panel">
+        <div class="tagline" style="color:var(--orange)">Under pressure</div>
+        <p>The loud needs get louder. The drive to be heard and to be right crowds the channel, quieter members and quieter traits like self-doubt go underground, and the team can mistake the most confident voice for the most correct one. Decisions start to feel made before everyone has spoken.</p>
+      </div>
+    </div>
+    <div class="avoid">
+      <b>How to avoid communication conflict</b>
+      <ul>
+        <li>Put a written round before open discussion, so the loudest voice does not set the frame for everyone else.</li>
+        <li>Anchor debates to an explicit criterion or goal, which this team aligns on, rather than to who is most insistent.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <p class="ai">AI interpretation</p>
+    <h2>How this team handles conflict</h2>
+    <p>This team's conflict erupts along two clean lines: how consistent and reliable things should be, and how fast to move. On both, the team is split into two camps rather than scattered, which makes the disagreement feel like a faction line rather than ordinary friction. Combined with the high need to be right, conflict can become a contest to win rather than a problem to solve, and because the team is uneven on belonging and trust, those contests can leave some members feeling on the outside.</p>
+    <div class="split">
+      <div class="panel">
+        <div class="tagline" style="color:var(--teal)">Mitigate it</div>
+        <p>Name the two fault lines out loud and build a standing agreement on each, so the team stops relitigating tempo and standards on every decision. Depersonalize disputes by routing them through the shared evaluation criteria the team already values, so the argument is about the standard, not the person.</p>
+      </div>
+      <div class="panel">
+        <div class="tagline" style="color:var(--orange)">Promote healthy conflict</div>
+        <p>The hidden risk is the opposite of too much heat. If the need to avoid looking foolish or to conform runs high, the team goes quiet rather than surface real disagreement, which looks like harmony but is avoidance. Invite dissent explicitly, rotate a devil's advocate, and reward whoever raises the uncomfortable point, so disagreement attaches to ideas and not to standing.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">Example report with illustrative data for format demonstration. Personal Threat Profile and the 5P model are the property of BrainWise Enterprises. Confidential.</div>
+</div>
+
+<script>
+(function(){
+  var NS="http://www.w3.org/2000/svg";
+  function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function tip(tp,wrap,ev,html){tp.innerHTML=html;var r=wrap.getBoundingClientRect();tp.style.left=(ev.clientX-r.left+12)+"px";tp.style.top=(ev.clientY-r.top-10)+"px";tp.style.display="block";}
+
+  /* ---- radial triangle ---- */
+  (function(){
+    var svg=document.getElementById("triangle"),tp=document.getElementById("triTip"),wrap=svg.parentNode;
+    var cx=220,cy=205,R=140,N=3;
+    var axes=[{label:"Protection",color:"#006D77",v:58},{label:"Participation",color:"#F5741A",v:44},{label:"Prediction",color:"#185FA5",v:61}];
+    function ang(i){return (-90+i*360/N)*Math.PI/180;}
+    function P(i,r){var a=ang(i);return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+    axes.forEach(function(ax,i){
+      var a0=ang(i)-Math.PI/N,a1=ang(i)+Math.PI/N;
+      var x0=cx+R*Math.cos(a0),y0=cy+R*Math.sin(a0),x1=cx+R*Math.cos(a1),y1=cy+R*Math.sin(a1);
+      svg.appendChild(el("path",{d:"M"+cx+" "+cy+" L"+x0+" "+y0+" A"+R+" "+R+" 0 0 1 "+x1+" "+y1+" Z",fill:ax.color,"fill-opacity":0.10}));
+    });
+    [25,50,75,100].forEach(function(g){
+      svg.appendChild(el("circle",{cx:cx,cy:cy,r:R*g/100,fill:"none",stroke:"#d9d1c2","stroke-width":1}));
+      svg.appendChild(el("text",{x:cx+3,y:cy-R*g/100+3,fill:"#bdb4a2","font-size":9,"font-family":"Inter"})).textContent=g;
+    });
+    axes.forEach(function(ax,i){var p=P(i,R);svg.appendChild(el("line",{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:"#cfc8ba","stroke-width":1}));});
+    var pts=axes.map(function(ax,i){return P(i,R*ax.v/100);});
+    var d=pts.map(function(p,i){return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z";
+    svg.appendChild(el("path",{d:d,fill:"#021F36","fill-opacity":0.14,stroke:"#021F36","stroke-width":2.5,"stroke-linejoin":"round"}));
+    axes.forEach(function(ax,i){
+      var p=P(i,R*ax.v/100);
+      var c=el("circle",{cx:p[0],cy:p[1],r:6,fill:ax.color,stroke:"#fff","stroke-width":2,style:"cursor:pointer"});
+      c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"<b>"+ax.label+"</b><br>team average "+ax.v);});
+      c.addEventListener("mouseleave",function(){tp.style.display="none";});
+      svg.appendChild(c);
+      var lp=P(i,R+24);
+      svg.appendChild(el("text",{x:lp[0],y:lp[1]+4,fill:ax.color,"font-size":13,"font-weight":600,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.label;
+      var vp=P(i,R*ax.v/100+(i===0?-16:16));
+      svg.appendChild(el("text",{x:vp[0],y:vp[1]+4,fill:ax.color,"font-size":13,"font-weight":700,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.v;
+    });
+  })();
+
+  /* ---- signal scatter ---- */
+  (function(){
+    var svg=document.getElementById("scatter"),tp=document.getElementById("scatTip"),wrap=svg.parentNode;
+    var X0=58,X1=730,Y0=40,Y1=370,aw=X1-X0,ah=Y1-Y0,maxS=36;
+    function sx(v){return X0+v/100*aw;} function sy(v){return Y1-v/maxS*ah;}
+    var cmap={collision:"#F5741A",blind:"#021F36",friction:"#C77F1A",compl:"#006D77",align:"#9C9683",sat:"#9E2B25"};
+    var pts=[
+      {f:"Voice and influence",m:86,s:6,sig:"collision"},{f:"Recognition need",m:81,s:9,sig:"collision"},{f:"Correctness need",m:74,s:11,sig:"collision"},
+      {f:"Situational awareness",m:19,s:9,sig:"blind"},{f:"Short-term loss aversion",m:24,s:12,sig:"blind"},{f:"Well-being vigilance (others)",m:28,s:10,sig:"blind"},
+      {f:"Consistency need",m:52,s:30,sig:"friction"},{f:"Commitment reliability",m:50,s:26,sig:"friction"},{f:"Ambiguity tolerance",m:47,s:28,sig:"friction"},
+      {f:"Action orientation",m:49,s:31,sig:"compl"},{f:"Risk tolerance",m:62,s:27,sig:"compl"},{f:"Status quo and stability",m:56,s:29,sig:"compl"},
+      {f:"Embarrassment avoidance",m:78,s:8,sig:"sat"},
+      {f:"Equality and reciprocity",m:80,s:8,sig:"align"},{f:"Need to trust others",m:78,s:10,sig:"align"}
+    ];
+    svg.appendChild(el("rect",{x:X0,y:sy(16),width:(sx(38)-X0),height:(Y1-sy(16)),fill:"#021F36","fill-opacity":.04}));
+    svg.appendChild(el("rect",{x:sx(66),y:sy(16),width:(X1-sx(66)),height:(Y1-sy(16)),fill:"#F5741A","fill-opacity":.05}));
+    svg.appendChild(el("rect",{x:X0,y:Y0,width:aw,height:(sy(20)-Y0),fill:"#C77F1A","fill-opacity":.04}));
+    svg.appendChild(el("line",{x1:X0,y1:Y1,x2:X1,y2:Y1,stroke:"#d9d1c2","stroke-width":1}));
+    svg.appendChild(el("line",{x1:X0,y1:Y0,x2:X0,y2:Y1,stroke:"#d9d1c2","stroke-width":1}));
+    [0,25,50,75,100].forEach(function(g){svg.appendChild(el("text",{x:sx(g),y:Y1+20,fill:"#a59c8a","font-size":11,"text-anchor":"middle","font-family":"Inter"})).textContent=g;});
+    svg.appendChild(el("text",{x:X0+aw/2,y:Y1+38,fill:"#5d6b76","font-size":12,"text-anchor":"middle","font-family":"Inter"})).textContent="Team average  →  scarce / shared";
+    svg.appendChild(el("text",{x:X0-30,y:Y0+ah/2,fill:"#5d6b76","font-size":12,"text-anchor":"middle","font-family":"Inter",transform:"rotate(-90 "+(X0-30)+" "+(Y0+ah/2)+")"})).textContent="Spread  →";
+    svg.appendChild(el("text",{x:sx(15),y:Y1-10,fill:"#021F36","font-size":12,"font-weight":600,"font-family":"Poppins","fill-opacity":.55,"text-anchor":"middle"})).textContent="Blind spots";
+    svg.appendChild(el("text",{x:sx(85),y:Y1-10,fill:"#9e4310","font-size":12,"font-weight":600,"font-family":"Poppins","text-anchor":"middle"})).textContent="Collision";
+    svg.appendChild(el("text",{x:sx(50),y:Y0+14,fill:"#9e6708","font-size":12,"font-weight":600,"font-family":"Poppins","text-anchor":"middle"})).textContent="Divergent (friction / complementarity)";
+    pts.forEach(function(p){
+      var c=el("circle",{cx:sx(p.m),cy:sy(p.s),r:9,fill:cmap[p.sig],"fill-opacity":.85,stroke:"#fff","stroke-width":2,style:"cursor:pointer"});
+      c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"<b>"+p.f+"</b><br>avg "+p.m+" · spread "+p.s+"<br>"+p.sig);});
+      c.addEventListener("mouseleave",function(){tp.style.display="none";});
+      svg.appendChild(c);
+    });
+  })();
+
+  /* ---- dimension agreement bars ---- */
+  (function(){
+    var svg=document.getElementById("dimbars"),tp=document.getElementById("dimTip"),wrap=svg.parentNode;
+    var X0=140,X1=690,aw=X1-X0;
+    function sx(v){return X0+v/100*aw;}
+    var dims=[{n:"Protection",c:"#006D77",a:58,lo:41,hi:72},{n:"Participation",c:"#F5741A",a:44,lo:22,hi:68},{n:"Prediction",c:"#185FA5",a:61,lo:38,hi:88}];
+    var top=24,rh=58;
+    [0,25,50,75,100].forEach(function(g){
+      svg.appendChild(el("line",{x1:sx(g),y1:top-8,x2:sx(g),y2:top+dims.length*rh-rh+30,stroke:"#eee6d8","stroke-width":1}));
+      svg.appendChild(el("text",{x:sx(g),y:top-12,fill:"#a59c8a","font-size":11,"text-anchor":"middle","font-family":"Inter"})).textContent=g;
+    });
+    dims.forEach(function(d,i){
+      var cy=top+i*rh+16, rng=d.hi-d.lo;
+      svg.appendChild(el("text",{x:12,y:cy+2,fill:"#1d2b38","font-size":14,"font-weight":500,"font-family":"Inter"})).textContent=d.n;
+      var tag=rng>=40?"members vary a lot":(rng>=25?"some variation":"fairly aligned");
+      svg.appendChild(el("text",{x:12,y:cy+18,fill:"#9C9683","font-size":11,"font-family":"Inter"})).textContent=tag;
+      var band=el("rect",{x:sx(d.lo),y:cy-9,width:sx(d.hi)-sx(d.lo),height:18,rx:9,fill:d.c,"fill-opacity":.16,style:"cursor:pointer"});
+      band.addEventListener("mouseenter",function(e){tip(tp,wrap,e,d.n+" range<br><b>"+d.lo+" to "+d.hi+"</b>");});
+      band.addEventListener("mouseleave",function(){tp.style.display="none";});
+      svg.appendChild(band);
+      var m=el("circle",{cx:sx(d.a),cy:cy,r:8,fill:"#021F36",stroke:"#fff","stroke-width":2,style:"cursor:pointer"});
+      m.addEventListener("mouseenter",function(e){tip(tp,wrap,e,d.n+" average<br><b>"+d.a+"</b>");});
+      m.addEventListener("mouseleave",function(){tp.style.display="none";});
+      svg.appendChild(m);
+      svg.appendChild(el("text",{x:sx(d.a),y:cy-14,fill:"#021F36","font-size":12,"font-weight":700,"text-anchor":"middle","font-family":"Poppins"})).textContent=d.a;
+    });
+  })();
+
+  /* ---- intuitive signal cards ---- */
+  function arrow(svg,x,y,dir,c){
+    var d=dir==="right"?"M"+(x-7)+" "+(y-5)+" L"+x+" "+y+" L"+(x-7)+" "+(y+5):"M"+(x+7)+" "+(y-5)+" L"+x+" "+y+" L"+(x+7)+" "+(y+5);
+    svg.appendChild(el("path",{d:d,fill:"none",stroke:c,"stroke-width":2.5,"stroke-linecap":"round","stroke-linejoin":"round"}));
+  }
+  function sig(id,type){
+    var svg=document.getElementById(id); if(!svg) return;
+    var baseY=50,x0=24,x1=296;
+    svg.appendChild(el("line",{x1:x0,y1:baseY,x2:x1,y2:baseY,stroke:"#e7e0d2","stroke-width":2,"stroke-linecap":"round"}));
+    svg.appendChild(el("text",{x:x0,y:baseY+22,fill:"#bdb4a2","font-size":10,"font-family":"Inter"})).textContent="Lower";
+    var hi=el("text",{x:x1,y:baseY+22,fill:"#bdb4a2","font-size":10,"text-anchor":"end","font-family":"Inter"});hi.textContent="Higher";svg.appendChild(hi);
+    function dot(x,y,c){svg.appendChild(el("circle",{cx:x,cy:y,r:6.5,fill:c,"fill-opacity":.9,stroke:"#fff","stroke-width":1.5}));}
+    function cluster(cx,c,n){for(var i=0;i<n;i++){var col=i%3,row=Math.floor(i/3);dot(cx+(col-1)*9,baseY-7-row*11,c);}}
+    if(type==="collision"){
+      cluster(250,"#F5741A",10);
+      svg.appendChild(el("text",{x:289,y:baseY-10,fill:"#F5741A","font-size":17,"text-anchor":"middle"})).textContent="\u2605";
+      [-8,0,8].forEach(function(dy){svg.appendChild(el("line",{x1:266,y1:baseY-10+dy,x2:282,y2:baseY-13,stroke:"#F5741A","stroke-width":1.5,"stroke-opacity":.5}));});
+    } else if(type==="friction"){
+      cluster(78,"#C77F1A",6); cluster(236,"#C77F1A",6);
+      arrow(svg,150,baseY-9,"right","#C77F1A"); arrow(svg,170,baseY-9,"left","#C77F1A");
+    } else if(type==="compl"){
+      cluster(78,"#006D77",6); cluster(236,"#006D77",6);
+      svg.appendChild(el("text",{x:160,y:baseY-3,fill:"#006D77","font-size":22,"font-weight":"700","text-anchor":"middle"})).textContent="+";
+      svg.appendChild(el("path",{d:"M74 20 Q160 4 240 20",fill:"none",stroke:"#006D77","stroke-width":1.5,"stroke-opacity":.5}));
+      svg.appendChild(el("text",{x:160,y:15,fill:"#006D77","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="one complete team";
+    } else if(type==="blind"){
+      cluster(70,"#021F36",10);
+      svg.appendChild(el("rect",{x:178,y:baseY-30,width:116,height:42,rx:9,fill:"none",stroke:"#021F36","stroke-width":1.2,"stroke-dasharray":"4 4","stroke-opacity":.55}));
+      svg.appendChild(el("text",{x:236,y:baseY-5,fill:"#021F36","font-size":11,"text-anchor":"middle","fill-opacity":.65,"font-family":"Inter"})).textContent="no one here";
+    } else if(type==="saturating"){
+      cluster(248,"#9E2B25",10);
+      svg.appendChild(el("text",{x:160,y:14,fill:"#9E2B25","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="everyone high \u2192 no one speaks";
+    } else if(type==="align"){
+      cluster(208,"#9C9683",10);
+      svg.appendChild(el("path",{d:"M170 24 Q208 10 246 24",fill:"none",stroke:"#9C9683","stroke-width":1.5,"stroke-opacity":.6}));
+      svg.appendChild(el("text",{x:208,y:16,fill:"#7d7768","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="shared ground";
+    }
+  }
+  sig("sigCollision","collision"); sig("sigFriction","friction"); sig("sigCompl","compl"); sig("sigBlind","blind"); sig("sigSat","saturating"); sig("sigAlign","align");
+})();
+</script>
+</body>
+</html>
