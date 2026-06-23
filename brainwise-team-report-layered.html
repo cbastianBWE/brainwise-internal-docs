@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Report — Layered</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#021F36; --orange:#F5741A; --sand:#F9F7F1; --teal:#006D77; --yellow:#FFB703;
+    --ink:#1d2b38; --muted:#5d6b76; --line:#e4ded2;
+    --prot:#006D77; --part:#F5741A; --pred:#185FA5;
+    --collision:#F5741A; --friction:#C77F1A; --compl:#006D77; --blind:#021F36; --sat:#9E2B25; --align:#3F8F5B;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--sand);color:var(--ink);font-family:"Inter",sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 90px;}
+  h1,h2,h3,.eyebrow,.rank,.shape-cap,.fgrouphead{font-family:"Poppins",sans-serif;}
+  .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--orange);font-weight:600;margin:0 0 8px;}
+  h2{font-size:22px;font-weight:600;color:var(--navy);margin:0 0 4px;}
+  section{margin-top:46px;}
+  .lede{color:var(--muted);font-size:14.5px;max-width:64ch;margin:0 0 18px;}
+  p{margin:0 0 13px;}
+
+  .hero{background:var(--navy);color:#fff;border-radius:0 0 18px 18px;padding:44px 22px 38px;}
+  .hero-inner{max-width:900px;margin:0 auto;}
+  .mark{display:flex;gap:5px;align-items:flex-end;margin-bottom:22px;}
+  .mark i{display:block;width:9px;height:9px;border-radius:50%;background:var(--orange);}
+  .mark i:nth-child(2){width:7px;height:7px;opacity:.85;}.mark i:nth-child(3){width:5px;height:5px;opacity:.6;}
+  .hero .eyebrow{color:var(--yellow);}
+  .hero h1{font-family:"Poppins";font-size:34px;font-weight:700;line-height:1.05;margin:0 0 12px;}
+  .hero h1 span{color:var(--orange);}
+  .hero p{color:#c7d2dc;max-width:58ch;font-size:14.5px;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:26px;margin-top:24px;}
+  .meta div span{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--yellow);font-weight:600;margin-bottom:3px;}
+  .meta div b{font-family:"Poppins";font-weight:600;font-size:15px;color:#fff;}
+
+  .topline{margin-top:-22px;position:relative;z-index:2;}
+  .three{background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px 4px;box-shadow:0 8px 28px rgba(2,31,54,.07);}
+  .tl-head{font-family:"Poppins";font-weight:600;font-size:13px;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;padding:14px 22px 6px;}
+  .tl{display:flex;gap:16px;align-items:flex-start;padding:16px 22px;border-top:1px solid var(--line);}
+  .tl:first-of-type{border-top:none;}
+  .tl-n{font-family:"Poppins";font-weight:700;font-size:30px;line-height:1;color:var(--orange);min-width:30px;}
+  .tl-b strong{display:block;font-family:"Poppins";font-weight:600;font-size:16.5px;color:var(--navy);margin-bottom:3px;}
+  .tl-b span{font-size:14px;color:var(--ink);}
+  .tl-b em{font-style:normal;color:var(--teal);font-weight:600;}
+
+  .profcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;position:relative;}
+  .chart-tip{position:absolute;display:none;pointer-events:none;background:var(--navy);color:#fff;border-radius:7px;padding:6px 9px;font-size:12px;z-index:5;}
+  .legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin-top:10px;font-size:12px;color:var(--muted);justify-content:center;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}.dot{width:9px;height:9px;border-radius:50%;}
+
+  .grammar{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;}
+  @media(max-width:680px){.grammar{grid-template-columns:repeat(2,1fr);}}
+  .gcell{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 8px 12px;text-align:center;}
+  .gcell svg{width:100%;height:46px;}
+  .shape-cap{font-size:12.5px;font-weight:600;color:var(--navy);margin-top:4px;}
+  .gcell small{display:block;font-size:11px;color:var(--muted);line-height:1.35;margin-top:2px;}
+
+  .driver{display:grid;grid-template-columns:34px 150px 1fr 1.1fr;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:12px;border-left:4px solid var(--muted);}
+  @media(max-width:720px){.driver{grid-template-columns:34px 1fr;}.driver .mini,.driver .daction{grid-column:1 / -1;}}
+  .driver.s-collision{border-left-color:var(--collision);} .driver.s-friction{border-left-color:var(--friction);}
+  .driver.s-compl{border-left-color:var(--compl);} .driver.s-blind{border-left-color:var(--blind);}
+  .driver.s-sat{border-left-color:var(--sat);} .driver.s-align{border-left-color:var(--align);background:#f1f8f3;}
+  .rank{font-size:20px;font-weight:700;color:var(--muted);text-align:center;}
+  .driver.s-align .rank{color:var(--align);}
+  .mini{height:58px;}
+  .dtext h3{font-size:15.5px;font-weight:600;color:var(--navy);margin:0 0 3px;}
+  .dtext p{font-size:13px;color:var(--muted);margin:0;}
+  .tag{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;border-radius:20px;padding:2px 9px;margin-bottom:5px;}
+  .daction{font-size:13.5px;}
+  .daction b{color:var(--navy);}
+  .owner{display:block;font-size:11.5px;color:var(--muted);margin-top:5px;}
+  .intensity{display:inline-flex;gap:2px;vertical-align:middle;margin-left:6px;}
+  .intensity i{width:5px;height:11px;border-radius:1px;background:var(--line);display:inline-block;}
+  .intensity i.on{background:var(--orange);}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.split{grid-template-columns:1fr;}}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .panel p{font-size:14px;margin:0;}
+  .tagline{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px;}
+  .avoid{background:#fbf0e4;border-radius:10px;padding:12px 14px;margin-top:14px;}
+  .avoid b{color:var(--navy);}.avoid ul{margin:6px 0 0;padding-left:18px;}.avoid li{font-size:13.5px;margin-bottom:6px;}
+
+  .brief{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+  .brow{display:grid;grid-template-columns:1.1fr 1.4fr 1.4fr .7fr;gap:14px;padding:13px 18px;border-top:1px solid var(--line);font-size:13.5px;}
+  .brow:first-child{border-top:none;background:var(--navy);color:#fff;font-family:"Poppins";font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;}
+  .brow b{color:var(--navy);font-family:"Poppins";}
+  .brow .o{color:var(--muted);}
+  @media(max-width:720px){.brow{grid-template-columns:1fr;gap:4px;}}
+  .brief .strength{background:#f1f8f3;padding:14px 18px;font-size:13.5px;border-top:2px solid var(--align);}
+  .brief .strength b{color:var(--align);font-family:"Poppins";}
+
+  .fgrouphead{font-weight:600;font-size:14.5px;color:var(--navy);margin:22px 0 9px;display:flex;align-items:center;gap:8px;}
+  .fgrouphead .dot{width:11px;height:11px;border-radius:50%;}
+  .facetgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  @media(max-width:680px){.facetgrid{grid-template-columns:repeat(2,1fr);}}
+  .ftile{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 10px 8px;border-top:3px solid var(--muted);}
+  .ftile svg{width:100%;height:44px;}
+  .ftile .fn{font-size:12.5px;font-weight:600;color:var(--navy);margin-top:3px;line-height:1.25;}
+
+  .coach{margin-top:48px;border-top:2px dashed var(--line);padding-top:24px;}
+  .coach-label{display:inline-block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;color:var(--teal);border:1px solid var(--teal);border-radius:20px;padding:4px 12px;margin-bottom:8px;}
+  details.more{border:1px solid var(--line);border-radius:12px;background:#fff;padding:2px 18px;margin-bottom:12px;}
+  details.more summary{cursor:pointer;padding:15px 0;font-weight:600;color:var(--navy);font-family:"Poppins";font-size:14.5px;}
+  details.more .body{padding-bottom:16px;}
+  .prompts{margin:6px 0 0;padding-left:20px;}.prompts li{font-size:13.5px;margin-bottom:8px;}
+  .foot{margin-top:54px;border-top:1px solid var(--line);padding-top:16px;font-size:12px;color:var(--muted);}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="mark"><i></i><i></i><i></i></div>
+    <p class="eyebrow">Team Threat Profile</p>
+    <h1>Team <span>Report</span></h1>
+    <p>The patterns that shape how this team works under pressure, ranked so the few that matter most come first. Built from every member's Personal Threat Profile.</p>
+    <div class="meta">
+      <div><span>Team</span><b>SymbioKinetics · Leadership</b></div>
+      <div><span>Members</span><b>12</b></div>
+      <div><span>Generated</span><b>June 22, 2026</b></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="topline">
+    <div class="three">
+      <div class="tl-head">Your team in three · the whole report in 30 seconds</div>
+      <div class="tl"><div class="tl-n">1</div><div class="tl-b"><strong>Everyone competes to be heard.</strong><span>Voice, credit, and being right all run high, so meetings become a contest for the same airtime. <em>Build turn-taking and rotate who runs the room.</em></span></div></div>
+      <div class="tl"><div class="tl-n">2</div><div class="tl-b"><strong>You are split on pace.</strong><span>Half the team moves fast, half wants to plan first, and it shows up on every decision. <em>Give each group the work it fits and set a tempo rule.</em></span></div></div>
+      <div class="tl"><div class="tl-n">3</div><div class="tl-b"><strong>No one is watching the surroundings.</strong><span>The team is uniformly low on tracking what is changing around it, so risks arrive unseen. <em>Give one person that job on purpose.</em></span></div></div>
+    </div>
+  </div>
+
+  <section>
+    <p class="eyebrow">Team profile</p>
+    <h2>The three threat domains</h2>
+    <p class="lede">Center is zero, the outer ring is 100. Each point is the team average in that domain. The bars below add how much members actually agree: a wide band means people are spread out, a tight band means they sit close.</p>
+    <div class="profcard">
+      <svg id="triangle" viewBox="0 0 440 430" width="100%" style="max-width:430px;display:block;margin:0 auto"></svg>
+      <div class="chart-tip" id="triTip"></div>
+      <svg id="dimbars" viewBox="0 0 720 210" width="100%" style="margin-top:6px"></svg>
+      <div class="chart-tip" id="dimTip"></div>
+      <div class="legend"><span><span class="dot" style="background:#9C9683;opacity:.45"></span>Range, low to high member</span><span><span class="dot" style="background:var(--navy)"></span>Team average</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How to read the shapes</h2>
+    <p class="lede">Every card below is one of five pictures. Learn them once and the rest of the report is instant. A dot is a teammate, placed lower to higher on that trait.</p>
+    <div class="grammar">
+      <div class="gcell"><svg id="g1" viewBox="0 0 160 50"></svg><div class="shape-cap">Nobody down there</div><small>everyone is high here</small></div>
+      <div class="gcell"><svg id="g2" viewBox="0 0 160 50"></svg><div class="shape-cap">Nobody up here</div><small>no one is high, unwatched</small></div>
+      <div class="gcell"><svg id="g3" viewBox="0 0 160 50"></svg><div class="shape-cap">Two groups</div><small>the team is split</small></div>
+      <div class="gcell"><svg id="g4" viewBox="0 0 160 50"></svg><div class="shape-cap">Even spread</div><small>a full spectrum</small></div>
+      <div class="gcell"><svg id="g5" viewBox="0 0 160 50"></svg><div class="shape-cap">Together</div><small>real common ground</small></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What is driving your team</h2>
+    <p class="lede">We open with the team's strength, then the risks in priority order. Ranking is by how strongly each pattern moves the team: how far past the line it sits, how visible it is in behavior, how clean the split is, and how many traits it touches. We show up to ten; the rest sit in the full map below.</p>
+
+    <div class="driver s-align">
+      <div class="rank">★</div><svg class="mini" id="d6" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#dff0e6;color:#2c7048;">Start here · your strength <span class="intensity"><i class="on" style="background:var(--align)"></i><i class="on" style="background:var(--align)"></i><i class="on" style="background:var(--align)"></i><i class="on" style="background:var(--align)"></i></span></span><h3>Deep shared trust and fairness</h3><p>The team is clustered high and tight here, genuine common ground to build from. Start with this, then work the risks below.</p></div>
+      <div class="daction"><b>Do this:</b> lean on it. Use this trust to carry the harder conversations below.<span class="owner">Owner: everyone</span></div>
+    </div>
+    <div class="driver s-collision">
+      <div class="rank">1</div><svg class="mini" id="d1" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#fdeadd;color:#9e4310;">Drives strongly <span class="intensity"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span><h3>Everyone competes to be heard</h3><p>Voice, recognition, and being right all sit high and shared, so they compete for the same scarce airtime.</p></div>
+      <div class="daction"><b>Do this:</b> a written round before open debate, rotate facilitation, and distribute credit on a cadence.<span class="owner">Owner: whoever runs the meeting</span></div>
+    </div>
+    <div class="driver s-compl">
+      <div class="rank">2</div><svg class="mini" id="d2" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#d5e7e8;color:#024d54;">Drives strongly <span class="intensity"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span><h3>Split on pace, and that is useful</h3><p>Half the team moves fast, half thinks first. Left alone it rubs; named, it is a division of labor.</p></div>
+      <div class="daction"><b>Do this:</b> route execution to the movers, planning and review to the deliberators, and agree when to move fast.<span class="owner">Owner: leader</span></div>
+    </div>
+    <div class="driver s-friction">
+      <div class="rank">3</div><svg class="mini" id="d3" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#f7eede;color:#8a5a12;">Drives strongly <span class="intensity"><i class="on"></i><i class="on"></i><i class="on"></i></span></span><h3>Split on how consistent to be</h3><p>Two camps pull against each other on standards and reliability, so it gets re-fought on every decision.</p></div>
+      <div class="daction"><b>Do this:</b> name the split out loud and agree one standard together.<span class="owner">Owner: team, in one working session</span></div>
+    </div>
+    <div class="driver s-blind">
+      <div class="rank">4</div><svg class="mini" id="d4" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#dde3e8;color:#021F36;">Quiet but real <span class="intensity"><i class="on"></i><i class="on"></i><i class="on"></i></span></span><h3>No one watches the surroundings</h3><p>The team is uniformly low on tracking what is changing around it, so those risks arrive unannounced.</p></div>
+      <div class="daction"><b>Do this:</b> name one owner for situational awareness and add a standing "what are we not seeing" check.<span class="owner">Owner: one named person</span></div>
+    </div>
+    <div class="driver s-sat">
+      <div class="rank">5</div><svg class="mini" id="d5" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#f5e1df;color:#7c241f;">Worth watching <span class="intensity"><i class="on"></i><i class="on"></i></span></span><h3>Fear of looking foolish runs high</h3><p>Almost everyone avoids embarrassment, so people go quiet. It looks like harmony but it is silence.</p></div>
+      <div class="daction"><b>Do this:</b> invite dissent by name and reward whoever raises the awkward point.<span class="owner">Owner: leader</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How this team communicates</h2>
+    <div class="split">
+      <div class="panel"><div class="tagline" style="color:var(--teal)">In general</div><p>Verbal, opinionated, and standards-driven. With voice, recognition, and the need to be right all high and shared, conversation tends to be a contest of strong views, and the most comfortable speakers set the frame quickly. Because the team is low on tracking context, members often arrive with different unspoken assumptions and do not realize it. They communicate best when an explicit standard is on the table to organize around.</p></div>
+      <div class="panel"><div class="tagline" style="color:var(--orange)">Under pressure</div><p>The loud needs get louder. The drive to be heard and to be right crowds the channel, quieter members and quieter traits like self-doubt go underground, and the team can mistake the most confident voice for the most correct one. Decisions start to feel made before everyone has spoken.</p></div>
+    </div>
+    <div class="avoid"><b>How to avoid communication conflict</b><ul>
+      <li>Put a written round before open discussion, so the loudest voice does not set the frame for everyone else.</li>
+      <li>Anchor debates to an explicit criterion or goal, which this team aligns on, rather than to who is most insistent.</li>
+    </ul></div>
+  </section>
+
+  <section>
+    <h2>How this team handles conflict</h2>
+    <p>This team's conflict erupts along two clean lines: how consistent and reliable things should be, and how fast to move. On both, the team is split into two camps rather than scattered, which makes the disagreement feel like a faction line. Combined with the high need to be right, conflict can become a contest to win rather than a problem to solve.</p>
+    <div class="split">
+      <div class="panel"><div class="tagline" style="color:var(--teal)">Mitigate it</div><p>Name the two fault lines out loud and build a standing agreement on each, so the team stops relitigating tempo and standards on every decision. Depersonalize disputes by routing them through the shared evaluation criteria the team already values.</p></div>
+      <div class="panel"><div class="tagline" style="color:var(--orange)">Promote healthy conflict</div><p>The hidden risk is the opposite of too much heat. If the need to avoid looking foolish or to conform runs high, the team goes quiet rather than surface real disagreement, which looks like harmony but is avoidance. Invite dissent explicitly, rotate a devil's advocate, and reward whoever raises the uncomfortable point.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>For the leader: the moves</h2>
+    <p class="lede">One page. The top drivers, what each costs the work, the structural lever, and who owns it.</p>
+    <div class="brief">
+      <div class="brow"><span>Driver</span><span>Risk to the work</span><span>The move</span><span>Owner</span></div>
+      <div class="brow"><span><b>Compete to be heard</b></span><span>Decisions made by the loudest; quieter, often better input is lost.</span><span>Written round first, rotate facilitation, scheduled recognition.</span><span class="o">Facilitator</span></div>
+      <div class="brow"><span><b>Split on pace</b></span><span>Tempo re-argued every time; movers and planners frustrate each other.</span><span>Assign roles to the split; set a fast-versus-slow rule.</span><span class="o">Leader</span></div>
+      <div class="brow"><span><b>Split on consistency</b></span><span>Standards relitigated; reliability feels uneven.</span><span>One agreed standard, set in a single working session.</span><span class="o">Team</span></div>
+      <div class="brow"><span><b>Unwatched surroundings</b></span><span>External and near-term risks land as surprises.</span><span>Name an owner; standing "what are we missing" check.</span><span class="o">One person</span></div>
+      <div class="strength"><b>Lean on:</b> the team's deep, shared trust and sense of fairness. It is the strongest common ground you have, and the foundation that makes every move above easier to land.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every pattern we found</h2>
+    <p class="lede">The full map, grouped by the five shapes from "How to read the shapes" above, and only those five. Every trait the team holds falls into one of them, so you can see at a glance which shape each one takes. The example shows a representative set; a live report covers all the team's traits.</p>
+    <div id="facetmap"></div>
+  </section>
+
+  <div class="coach">
+    <span class="coach-label">For the coach</span>
+    <h2>Running the debrief</h2>
+    <p class="lede">Facilitation material, not needed for the team or leader to act.</p>
+    <details class="more">
+      <summary>The why behind each call</summary>
+      <div class="body"><p style="font-size:13.5px;margin-top:6px">Each pattern is routed from the trait's fixed labels read against this team's scores. A trait that competes when everyone is high (the need to be heard) routes to collision. A trait the team should share but is split on (consistency) routes to friction. A trait where difference is useful (pace) routes to complementarity. A protective trait everyone is low on (situational awareness) routes to a blind spot. A trait where uniform high is itself the problem (fear of looking foolish) routes to saturating. A trait shared at a healthy level (trust) routes to alignment. The driver ranking then weights each by how far past the line it sits, how loud it is in behavior, how clean the split is, and how many traits carry the same signal.</p></div>
+    </details>
+    <details class="more">
+      <summary>Conversation prompts for the debrief</summary>
+      <div class="body"><ul class="prompts">
+        <li>When we disagree, who tends to go quiet, and what would help them stay in the room?</li>
+        <li>On pace, where has our split actually cost us, and where has it saved us?</li>
+        <li>Who is best placed to watch what is changing around us, and will we give them that job?</li>
+        <li>Where do we go silent to avoid looking foolish, and how do we make it safe to be wrong?</li>
+        <li>What does our shared trust let us attempt that a lower-trust team could not?</li>
+      </ul></div>
+    </details>
+  </div>
+
+  <div class="foot">Example report with illustrative data for format demonstration. Colors shown are placeholders for BrainWise brand values. Personal Threat Profile and the 5P model are the property of BrainWise Enterprises. Confidential.</div>
+</div>
+
+<script>
+(function(){
+  var NS="http://www.w3.org/2000/svg";
+  function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function tip(tp,wrap,ev,html){tp.innerHTML=html;var r=wrap.getBoundingClientRect();tp.style.left=(ev.clientX-r.left+12)+"px";tp.style.top=(ev.clientY-r.top-10)+"px";tp.style.display="block";}
+
+  /* five-shape grammar, also used for drivers and the full facet map */
+  function dotsFor(type){
+    var L=20,Hi=140;
+    function ev(n){var a=[];for(var i=0;i<n;i++)a.push(L+(Hi-L)*i/(n-1));return a;}
+    if(type==="crowded") return [126,138,120,134,128,140,132];
+    if(type==="twogroups") return [42,52,46,118,128,124];
+    if(type==="spread") return ev(8);
+    if(type==="emptytop") return [30,42,34,48,28,40];
+    if(type==="together") return [80,90,84,94,86,92];
+    return [];
+  }
+  function shape(id,type,color,h){
+    var svg=document.getElementById(id); if(!svg) return;
+    var baseY=(h||50)*0.55;
+    svg.appendChild(el("line",{x1:14,y1:baseY,x2:146,y2:baseY,stroke:"#e7e0d2","stroke-width":2,"stroke-linecap":"round"}));
+    if(type==="emptytop") svg.appendChild(el("rect",{x:92,y:baseY-22,width:54,height:30,rx:7,fill:"none",stroke:color,"stroke-width":1.1,"stroke-dasharray":"4 4","stroke-opacity":.5}));
+    if(type==="crowded") svg.appendChild(el("rect",{x:14,y:baseY-22,width:54,height:30,rx:7,fill:"none",stroke:color,"stroke-width":1.1,"stroke-dasharray":"4 4","stroke-opacity":.32}));
+    var xs=dotsFor(type);
+    xs.forEach(function(x,i){
+      var stack=(type==="crowded"||type==="together"),row=stack?(i%2):0;
+      svg.appendChild(el("circle",{cx:x,cy:baseY-3-(row?9:0),r:5,fill:color,"fill-opacity":.9,stroke:"#fff","stroke-width":1.4}));
+    });
+    if(type==="twogroups") svg.appendChild(el("line",{x1:82,y1:baseY-16,x2:82,y2:baseY+8,stroke:color,"stroke-width":1,"stroke-dasharray":"3 3","stroke-opacity":.5}));
+  }
+  shape("g1","crowded","#F5741A");shape("g2","emptytop","#021F36");shape("g3","twogroups","#C77F1A");shape("g4","spread","#006D77");shape("g5","together","#3F8F5B");
+  shape("d1","crowded","#F5741A",58);shape("d2","twogroups","#006D77",58);shape("d3","twogroups","#C77F1A",58);shape("d4","emptytop","#021F36",58);shape("d5","crowded","#9E2B25",58);shape("d6","together","#3F8F5B",58);
+
+  /* full facet map: every trait grouped by the five shapes from the grammar */
+  (function(){
+    var host=document.getElementById("facetmap");
+    var groups=[
+      {label:"Nobody down there (everyone high)",color:"#F5741A",shape:"crowded",items:["Voice and influence","Recognition need","Correctness need","Power and influence","Status and prestige","Autonomy and control","Embarrassment avoidance"]},
+      {label:"Nobody up here (everyone low)",color:"#021F36",shape:"emptytop",items:["Situational awareness","Short-term loss aversion","Well-being of others"]},
+      {label:"Two groups (a split)",color:"#C77F1A",shape:"twogroups",items:["Consistency need","Commitment reliability","Expectation clarity","Action orientation"]},
+      {label:"Even spread (a spectrum)",color:"#006D77",shape:"spread",items:["Risk tolerance","Status quo and stability","Ambiguity tolerance","Flexibility and flow","Evaluation criteria"]},
+      {label:"Together (common ground)",color:"#3F8F5B",shape:"together",items:["Need to trust others","Equality and reciprocity"]}
+    ];
+    var n=0;
+    groups.forEach(function(g){
+      var h=document.createElement("div"); h.className="fgrouphead";
+      h.innerHTML='<span class="dot" style="background:'+g.color+'"></span>'+g.label;
+      host.appendChild(h);
+      var grid=document.createElement("div"); grid.className="facetgrid"; host.appendChild(grid);
+      g.items.forEach(function(fname){
+        n++; var id="fm"+n;
+        var tile=document.createElement("div"); tile.className="ftile"; tile.style.borderTopColor=g.color;
+        var sv=document.createElementNS(NS,"svg"); sv.setAttribute("viewBox","0 0 160 46"); sv.id=id;
+        var nm=document.createElement("div"); nm.className="fn"; nm.textContent=fname;
+        tile.appendChild(sv); tile.appendChild(nm); grid.appendChild(tile);
+        shape(id,g.shape,g.color,46);
+      });
+    });
+  })();
+
+  /* radial triangle */
+  (function(){
+    var svg=document.getElementById("triangle"),tp=document.getElementById("triTip"),wrap=svg.parentNode;
+    var cx=220,cy=205,R=140,N=3;
+    var axes=[{label:"Protection",color:"#006D77",v:58},{label:"Participation",color:"#F5741A",v:44},{label:"Prediction",color:"#185FA5",v:61}];
+    function ang(i){return (-90+i*360/N)*Math.PI/180;} function P(i,r){var a=ang(i);return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+    axes.forEach(function(ax,i){var a0=ang(i)-Math.PI/N,a1=ang(i)+Math.PI/N;svg.appendChild(el("path",{d:"M"+cx+" "+cy+" L"+(cx+R*Math.cos(a0))+" "+(cy+R*Math.sin(a0))+" A"+R+" "+R+" 0 0 1 "+(cx+R*Math.cos(a1))+" "+(cy+R*Math.sin(a1))+" Z",fill:ax.color,"fill-opacity":0.10}));});
+    [25,50,75,100].forEach(function(g){svg.appendChild(el("circle",{cx:cx,cy:cy,r:R*g/100,fill:"none",stroke:"#d9d1c2","stroke-width":1}));});
+    axes.forEach(function(ax,i){var p=P(i,R);svg.appendChild(el("line",{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:"#cfc8ba","stroke-width":1}));});
+    var pts=axes.map(function(ax,i){return P(i,R*ax.v/100);});
+    svg.appendChild(el("path",{d:pts.map(function(p,i){return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z",fill:"#021F36","fill-opacity":0.14,stroke:"#021F36","stroke-width":2.5,"stroke-linejoin":"round"}));
+    axes.forEach(function(ax,i){var p=P(i,R*ax.v/100);var c=el("circle",{cx:p[0],cy:p[1],r:6,fill:ax.color,stroke:"#fff","stroke-width":2,style:"cursor:pointer"});c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"<b>"+ax.label+"</b><br>average "+ax.v);});c.addEventListener("mouseleave",function(){tp.style.display="none";});svg.appendChild(c);var lp=P(i,R+24);svg.appendChild(el("text",{x:lp[0],y:lp[1]+4,fill:ax.color,"font-size":13,"font-weight":600,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.label;var vp=P(i,R*ax.v/100+(i===0?-16:16));svg.appendChild(el("text",{x:vp[0],y:vp[1]+4,fill:ax.color,"font-size":13,"font-weight":700,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.v;});
+  })();
+
+  /* dimension bars */
+  (function(){
+    var svg=document.getElementById("dimbars"),tp=document.getElementById("dimTip"),wrap=svg.parentNode;
+    var X0=140,X1=690,aw=X1-X0; function sx(v){return X0+v/100*aw;}
+    var dims=[{n:"Protection",c:"#006D77",a:58,lo:41,hi:72},{n:"Participation",c:"#F5741A",a:44,lo:22,hi:68},{n:"Prediction",c:"#185FA5",a:61,lo:38,hi:88}];
+    var top=24,rh=58;
+    [0,25,50,75,100].forEach(function(g){svg.appendChild(el("line",{x1:sx(g),y1:top-8,x2:sx(g),y2:top+dims.length*rh-rh+30,stroke:"#eee6d8","stroke-width":1}));svg.appendChild(el("text",{x:sx(g),y:top-12,fill:"#a59c8a","font-size":11,"text-anchor":"middle","font-family":"Inter"})).textContent=g;});
+    dims.forEach(function(d,i){var cy=top+i*rh+16,rng=d.hi-d.lo;svg.appendChild(el("text",{x:12,y:cy+2,fill:"#1d2b38","font-size":14,"font-weight":500,"font-family":"Inter"})).textContent=d.n;var tag=rng>=40?"members vary a lot":(rng>=25?"some variation":"fairly aligned");svg.appendChild(el("text",{x:12,y:cy+18,fill:"#9C9683","font-size":11,"font-family":"Inter"})).textContent=tag;var band=el("rect",{x:sx(d.lo),y:cy-9,width:sx(d.hi)-sx(d.lo),height:18,rx:9,fill:d.c,"fill-opacity":.16,style:"cursor:pointer"});band.addEventListener("mouseenter",function(e){tip(tp,wrap,e,d.n+" range<br><b>"+d.lo+" to "+d.hi+"</b>");});band.addEventListener("mouseleave",function(){tp.style.display="none";});svg.appendChild(band);svg.appendChild(el("circle",{cx:sx(d.a),cy:cy,r:8,fill:"#021F36",stroke:"#fff","stroke-width":2}));svg.appendChild(el("text",{x:sx(d.a),y:cy-14,fill:"#021F36","font-size":12,"font-weight":700,"text-anchor":"middle","font-family":"Poppins"})).textContent=d.a;});
+  })();
+})();
+</script>
+</body>
+</html>

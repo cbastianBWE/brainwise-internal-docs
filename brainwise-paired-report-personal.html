@@ -13,74 +13,95 @@
     --ink:#1d2b38; --muted:#5d6b76; --line:#e4ded2;
     --prot:#006D77; --part:#F5741A; --pred:#185FA5; --purp:#C99700; --plea:#7B5EA7;
     --pa:#021F36; --pb:#B5179E;
+    --collision:#F5741A; --friction:#C77F1A; --compl:#006D77; --blind:#021F36; --sat:#9E2B25; --align:#3F8F5B;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--sand);color:var(--ink);font-family:"Inter",sans-serif;line-height:1.65;-webkit-font-smoothing:antialiased;}
-  .wrap{max-width:880px;margin:0 auto;padding:0 24px 90px;}
-  h1,h2,h3,.eyebrow{font-family:"Poppins",sans-serif;}
+  body{margin:0;background:var(--sand);color:var(--ink);font-family:"Inter",sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:900px;margin:0 auto;padding:0 22px 90px;}
+  h1,h2,h3,.eyebrow,.rank,.shape-cap,.fgrouphead{font-family:"Poppins",sans-serif;}
   .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--orange);font-weight:600;margin:0 0 8px;}
-  h2{font-size:23px;font-weight:600;color:var(--navy);margin:0 0 6px;}
-  h3{font-size:16px;font-weight:600;color:var(--navy);margin:0 0 4px;}
-  p{margin:0 0 14px;}
-  section{margin-top:54px;}
-  .lede{color:var(--muted);font-size:15px;max-width:64ch;}
-  .ai{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:8px;}
-  .ai:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--teal);}
+  h2{font-size:22px;font-weight:600;color:var(--navy);margin:0 0 4px;}
+  section{margin-top:46px;}
+  .lede{color:var(--muted);font-size:14.5px;max-width:64ch;margin:0 0 18px;}
+  p{margin:0 0 13px;}
 
-  .hero{background:var(--navy);color:#fff;border-radius:0 0 18px 18px;padding:46px 24px 40px;}
-  .hero-inner{max-width:880px;margin:0 auto;}
-  .mark{display:flex;gap:5px;align-items:flex-end;margin-bottom:24px;}
+  .hero{background:var(--navy);color:#fff;border-radius:0 0 18px 18px;padding:44px 22px 38px;}
+  .hero-inner{max-width:900px;margin:0 auto;}
+  .mark{display:flex;gap:5px;align-items:flex-end;margin-bottom:22px;}
   .mark i{display:block;width:9px;height:9px;border-radius:50%;background:var(--orange);}
   .mark i:nth-child(2){width:7px;height:7px;opacity:.85;}.mark i:nth-child(3){width:5px;height:5px;opacity:.6;}
   .hero .eyebrow{color:var(--yellow);}
-  .hero h1{font-family:"Poppins";font-size:38px;font-weight:700;line-height:1.05;margin:0 0 14px;}
+  .hero h1{font-family:"Poppins";font-size:34px;font-weight:700;line-height:1.05;margin:0 0 12px;}
   .hero h1 span{color:var(--orange);}
-  .hero p{color:#c7d2dc;max-width:60ch;font-size:15px;}
-  .meta{display:flex;flex-wrap:wrap;gap:28px;margin-top:26px;}
+  .hero p{color:#c7d2dc;max-width:58ch;font-size:14.5px;margin:0;}
+  .meta{display:flex;flex-wrap:wrap;gap:26px;margin-top:24px;}
   .meta div span{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--yellow);font-weight:600;margin-bottom:3px;}
-  .meta div b{font-family:"Poppins";font-weight:600;font-size:16px;color:#fff;}
+  .meta div b{font-family:"Poppins";font-weight:600;font-size:15px;color:#fff;}
 
-  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 18px;position:relative;}
-  .chart-tip{position:absolute;display:none;pointer-events:none;background:var(--navy);color:#fff;border-radius:7px;padding:6px 9px;font-size:12px;line-height:1.4;white-space:nowrap;z-index:5;}
-  .legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin-top:12px;font-size:12.5px;color:var(--muted);justify-content:center;}
-  .legend span{display:inline-flex;align-items:center;gap:6px;}
-  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+  .topline{margin-top:-22px;position:relative;z-index:2;}
+  .three{background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px 4px;box-shadow:0 8px 28px rgba(2,31,54,.07);}
+  .tl-head{font-family:"Poppins";font-weight:600;font-size:13px;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;padding:14px 22px 6px;}
+  .tl{display:flex;gap:16px;align-items:flex-start;padding:16px 22px;border-top:1px solid var(--line);}
+  .tl:first-of-type{border-top:none;}
+  .tl-n{font-family:"Poppins";font-weight:700;font-size:30px;line-height:1;color:var(--orange);min-width:30px;}
+  .tl-b strong{display:block;font-family:"Poppins";font-weight:600;font-size:16.5px;color:var(--navy);margin-bottom:3px;}
+  .tl-b span{font-size:14px;color:var(--ink);}
+  .tl-b em{font-style:normal;color:var(--teal);font-weight:600;}
+
+  .profcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;position:relative;text-align:center;}
+  .chart-tip{position:absolute;display:none;pointer-events:none;background:var(--navy);color:#fff;border-radius:7px;padding:6px 9px;font-size:12px;z-index:5;}
+  .legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin-top:10px;font-size:12px;color:var(--muted);justify-content:center;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}.dot{width:9px;height:9px;border-radius:50%;}
   .swatches{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:11.5px;color:var(--muted);justify-content:center;}
 
-  ul.clean{list-style:none;padding:0;margin:0;}
-  ul.clean li{position:relative;padding-left:26px;margin-bottom:13px;font-size:15px;}
-  ul.clean li:before{content:"";position:absolute;left:2px;top:9px;width:9px;height:9px;border-radius:50%;background:var(--orange);}
+  .grammar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  @media(max-width:680px){.grammar{grid-template-columns:repeat(2,1fr);}}
+  .gcell{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 8px 12px;text-align:center;}
+  .gcell svg{width:100%;height:46px;}
+  .shape-cap{font-size:12.5px;font-weight:600;color:var(--navy);margin-top:4px;}
+  .gcell small{display:block;font-size:11px;color:var(--muted);line-height:1.35;margin-top:2px;}
 
-  .step{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px 8px;margin-bottom:16px;border-top:4px solid var(--navy);}
-  .step-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px;}
-  .step-num{font-family:"Poppins";font-weight:700;font-size:28px;color:var(--orange);line-height:1;}
-  .step-sig{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;border-radius:20px;padding:3px 10px;}
-  .step ul{margin:10px 0 6px;padding-left:0;list-style:none;}
-  .step li{position:relative;padding-left:22px;margin-bottom:10px;font-size:14px;}
-  .step li:before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:1px;background:var(--teal);}
+  .driver{display:grid;grid-template-columns:34px 150px 1fr 1.1fr;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:12px;border-left:4px solid var(--muted);}
+  @media(max-width:720px){.driver{grid-template-columns:34px 1fr;}.driver .mini,.driver .daction{grid-column:1 / -1;}}
+  .driver.s-collision{border-left-color:var(--collision);} .driver.s-friction{border-left-color:var(--friction);}
+  .driver.s-compl{border-left-color:var(--compl);} .driver.s-blind{border-left-color:var(--blind);}
+  .driver.s-sat{border-left-color:var(--sat);} .driver.s-align{border-left-color:var(--align);background:#f1f8f3;}
+  .rank{font-size:20px;font-weight:700;color:var(--muted);text-align:center;}
+  .driver.s-align .rank{color:var(--align);}
+  .mini{height:58px;}
+  .dtext h3{font-size:15.5px;font-weight:600;color:var(--navy);margin:0 0 3px;}
+  .dtext p{font-size:13px;color:var(--muted);margin:0;}
+  .tag{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;border-radius:20px;padding:2px 9px;margin-bottom:5px;}
+  .daction{font-size:13.5px;}.daction b{color:var(--navy);}
 
   .split{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-  @media(max-width:640px){.split{grid-template-columns:1fr;}.hero h1{font-size:30px;}}
+  @media(max-width:640px){.split{grid-template-columns:1fr;}}
   .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
   .panel p{font-size:14px;margin:0;}
   .tagline{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px;}
-  .needs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;}
-  @media(max-width:640px){.needs{grid-template-columns:1fr;}}
-  .need{border-radius:12px;padding:14px 16px;}
-  .need h3{margin-bottom:4px;}
-  .need p{font-size:13.5px;margin:0;color:var(--ink);}
   .avoid{background:#fbf0e4;border-radius:10px;padding:12px 14px;margin-top:14px;}
   .avoid b{color:var(--navy);}.avoid ul{margin:6px 0 0;padding-left:18px;}.avoid li{font-size:13.5px;margin-bottom:6px;}
-  .foot{margin-top:64px;border-top:1px solid var(--line);padding-top:18px;font-size:12px;color:var(--muted);}
-  .sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-  @media(max-width:640px){.sig-grid{grid-template-columns:1fr;}}
-  .sigcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;border-top:4px solid var(--navy);}
-  .sigcard h3{margin:8px 0 6px;font-size:18px;}
-  .sig-what{font-size:13.5px;color:var(--muted);margin:8px 0 10px;}
-  .sig-do{font-size:13.5px;background:#f4f1e8;border-radius:9px;padding:9px 12px;}
-  .sig-do b{color:var(--navy);}
-  details.more{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:2px 18px;}
-  details.more summary{cursor:pointer;padding:14px 0;font-weight:600;color:var(--navy);font-family:"Poppins";font-size:14px;}
+  .needs{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:640px){.needs{grid-template-columns:1fr;}}
+  .need{border-radius:12px;padding:14px 16px;}
+  .need h3{margin:0 0 4px;font-size:15px;}
+  .need p{font-size:13.5px;margin:0;color:var(--ink);}
+
+  .fgrouphead{font-weight:600;font-size:14.5px;color:var(--navy);margin:22px 0 9px;display:flex;align-items:center;gap:8px;}
+  .fgrouphead .dot{width:11px;height:11px;border-radius:50%;}
+  .facetgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  @media(max-width:680px){.facetgrid{grid-template-columns:repeat(2,1fr);}}
+  .ftile{background:#fff;border:1px solid var(--line);border-radius:11px;padding:10px 10px 8px;border-top:3px solid var(--muted);}
+  .ftile svg{width:100%;height:44px;}
+  .ftile .fn{font-size:12.5px;font-weight:600;color:var(--navy);margin-top:3px;line-height:1.25;}
+
+  .coach{margin-top:48px;border-top:2px dashed var(--line);padding-top:24px;}
+  .coach-label{display:inline-block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;color:var(--teal);border:1px solid var(--teal);border-radius:20px;padding:4px 12px;margin-bottom:8px;}
+  details.more{border:1px solid var(--line);border-radius:12px;background:#fff;padding:2px 18px;margin-bottom:12px;}
+  details.more summary{cursor:pointer;padding:15px 0;font-weight:600;color:var(--navy);font-family:"Poppins";font-size:14.5px;}
+  details.more .body{padding-bottom:16px;}
+  .prompts{margin:6px 0 0;padding-left:20px;}.prompts li{font-size:13.5px;margin-bottom:8px;}
+  .foot{margin-top:54px;border-top:1px solid var(--line);padding-top:16px;font-size:12px;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -90,11 +111,10 @@
     <div class="mark"><i></i><i></i><i></i></div>
     <p class="eyebrow">Paired Threat Profile · Personal</p>
     <h1>Paired <span>Report</span></h1>
-    <p>How two people in a close relationship scan for threat and reward, and how those patterns meet in everyday life. Built from both Personal Threat Profiles across all five domains of the BrainWise 5P model.</p>
+    <p>How two people close to each other scan for threat and reward, and where those patterns meet, ranked so the few that matter most come first. Built from both Personal Threat Profiles.</p>
     <div class="meta">
-      <div><span>Person A</span><b>Purpose-anchored, steady</b></div>
+      <div><span>Person A</span><b>Steady, reliability-minded</b></div>
       <div><span>Person B</span><b>Fast, people-facing</b></div>
-      <div><span>Scope</span><b>All 89 facets</b></div>
       <div><span>Generated</span><b>June 22, 2026</b></div>
     </div>
   </div>
@@ -102,190 +122,136 @@
 
 <div class="wrap">
 
+  <div class="topline">
+    <div class="three">
+      <div class="tl-head">Your pair in three · the whole report in 30 seconds</div>
+      <div class="tl"><div class="tl-n">1</div><div class="tl-b"><strong>You both need to be heard.</strong><span>You are both high on the need to be heard, so in a disagreement you talk over each other instead of taking turns. <em>Slow down and let each other finish.</em></span></div></div>
+      <div class="tl"><div class="tl-n">2</div><div class="tl-b"><strong>You are far apart on pace.</strong><span>One of you wants to decide and go, the other wants to think it through, which rubs unless you use it. <em>Let each lead where they are strong.</em></span></div></div>
+      <div class="tl"><div class="tl-n">3</div><div class="tl-b"><strong>Neither of you tracks what is coming.</strong><span>You are both low on watching for what is changing around you, so problems sneak up on you both. <em>Agree that one of you keeps an eye out.</em></span></div></div>
+    </div>
+  </div>
+
   <section>
     <p class="eyebrow">Paired profile</p>
-    <h2>Both people across the five domains</h2>
-    <p class="lede">Center is zero, the outer ring is 100. Each colored wedge is a domain. The two outlines are the two people, so where the shapes pull apart is where they differ, and where they overlap is where they meet.</p>
-    <div class="card" style="text-align:center">
-      <svg id="pentagon" viewBox="0 0 440 440" width="100%" style="max-width:470px" role="img" aria-label="Pentagon radial chart comparing two people across five domains"></svg>
+    <h2>Both of you across the five domains</h2>
+    <p class="lede">Center is zero, the outer ring is 100. Each colored wedge is a domain. The two outlines are the two of you, so where they pull apart is where you differ and where they overlap is where you meet.</p>
+    <div class="profcard">
+      <svg id="pentagon" viewBox="0 0 440 440" width="100%" style="max-width:460px;display:block;margin:0 auto"></svg>
       <div class="chart-tip" id="penTip"></div>
-      <div class="legend">
-        <span><span class="dot" style="background:var(--pa)"></span>Person A</span>
-        <span><span class="dot" style="background:var(--pb)"></span>Person B</span>
-      </div>
+      <div class="legend"><span><span class="dot" style="background:var(--pa)"></span>Person A</span><span><span class="dot" style="background:var(--pb)"></span>Person B</span></div>
       <div class="swatches">
-        <span><span class="dot" style="background:var(--prot)"></span>Protection</span>
-        <span><span class="dot" style="background:var(--part)"></span>Participation</span>
-        <span><span class="dot" style="background:var(--pred)"></span>Prediction</span>
-        <span><span class="dot" style="background:var(--purp)"></span>Purpose</span>
-        <span><span class="dot" style="background:var(--plea)"></span>Pleasure</span>
+        <span><span class="dot" style="background:var(--prot)"></span>Protection</span><span><span class="dot" style="background:var(--part)"></span>Participation</span><span><span class="dot" style="background:var(--pred)"></span>Prediction</span><span><span class="dot" style="background:var(--purp)"></span>Purpose</span><span><span class="dot" style="background:var(--plea)"></span>Pleasure</span>
       </div>
     </div>
   </section>
 
   <section>
-    <p class="ai">AI interpretation</p>
-    <h2>Paired profile overview</h2>
-    <p>Across the five domains, A and B are close to mirror images. A leads on Protection and Purpose, B leads on Participation and Prediction, and they meet only near the middle on Pleasure. The most important pattern is where they are identical. Both score very high on the need to be heard, which means two strong voices reaching for the same space in a conversation, and both score very low on noticing what is going on around them, which is a shared blind spot that neither will naturally cover.</p>
-    <p>Almost everywhere else they are far apart, and that distance is mostly a strength they have not yet leaned into. A is the steady, reliable, meaning-driven one. B is the spontaneous, easygoing, people-facing one. Read as a flaw in either person, the gap is a constant source of friction. Read as two roles that fit together, it is most of what makes them good for each other.</p>
-  </section>
-
-  <section>
-    <p class="ai">AI interpretation</p>
-    <h2>What it means for the pair</h2>
-    <ul class="clean">
-      <li>Their biggest live risk is the one place they are the same. Both need to be heard, so without a habit of taking turns they will talk over each other and start to feel unheard.</li>
-      <li>Their shared blind spot, where neither notices what is building up around them, means problems can grow unseen until they are big. One of them has to keep an eye out on purpose.</li>
-      <li>Their differences in pace, reliability, and need for recognition fit together rather than clash. Given room, A brings the steadiness and B brings the energy.</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>What we found, and what to do</h2>
-    <p class="lede">Three patterns define this pairing. Each card is a simple picture of how the two of you sit together, what it means, and the one move that helps.</p>
-    <div class="sig-grid">
-      <div class="sigcard" style="border-top-color:#F5741A">
-        <h3 style="color:#F5741A">Collision</h3>
-        <svg id="sigCollP" viewBox="0 0 320 84" width="100%" role="img" aria-label="Both high, competing for one thing"></svg>
-        <p class="sig-what">Both of you score very high on the same scarce thing: the need to be heard. Two strong voices reaching for the same floor.</p>
-        <div class="sig-do"><b>Do this:</b> agree who opens which topics and take turns, so you stop talking over each other.</div>
-      </div>
-      <div class="sigcard" style="border-top-color:#006D77">
-        <h3 style="color:#006D77">Complementarity</h3>
-        <svg id="sigComplP" viewBox="0 0 320 84" width="100%" role="img" aria-label="Far apart, two halves that fit"></svg>
-        <p class="sig-what">On most traits you sit far apart, and that is a strength. One of you moves fast, the other plans. Together you cover both ends.</p>
-        <div class="sig-do"><b>Do this:</b> split the work along the difference. A holds reliability and sequencing, B holds pace and momentum.</div>
-      </div>
-      <div class="sigcard" style="border-top-color:#021F36">
-        <h3 style="color:#021F36">Blind spot</h3>
-        <svg id="sigBlindP" viewBox="0 0 320 84" width="100%" role="img" aria-label="Both low, the top unwatched"></svg>
-        <p class="sig-what">You both score low on tracking what is going on around you. Neither is watching, so surprises hit the partnership from outside.</p>
-        <div class="sig-do"><b>Do this:</b> one of you owns scanning the outside on purpose, because neither will by default.</div>
-      </div>
-      <div class="sigcard" style="border-top-color:#9C9683">
-        <h3 style="color:#9C9683">Alignment</h3>
-        <svg id="sigAlignP" viewBox="0 0 320 84" width="100%" role="img" aria-label="Both high on a shared strength"></svg>
-        <p class="sig-what">You both score high on trusting each other, a trait that works best when shared. This is your common ground, the steady base the rest of the relationship can stand on.</p>
-        <div class="sig-do"><b>Do this:</b> name it and use it. Lean on the trust you already share when you work through the harder differences.</div>
-      </div>
+    <h2>How to read the shapes</h2>
+    <p class="lede">For two people every trait is one of four pictures. The dark dot is A, the bright dot is B, placed lower to higher. Three of the four are worth acting on; both sitting in the middle usually is not.</p>
+    <div class="grammar">
+      <div class="gcell"><svg id="g1" viewBox="0 0 160 50"></svg><div class="shape-cap">Far apart</div><small>opposite ends, a split</small></div>
+      <div class="gcell"><svg id="g2" viewBox="0 0 160 50"></svg><div class="shape-cap">Both high</div><small>you are both high here</small></div>
+      <div class="gcell"><svg id="g3" viewBox="0 0 160 50"></svg><div class="shape-cap">Both low</div><small>you are both low here</small></div>
+      <div class="gcell"><svg id="g4" viewBox="0 0 160 50"></svg><div class="shape-cap">Both medium</div><small>both mid, usually not a driver</small></div>
     </div>
-    <details class="more">
-      <summary>Show every facet, ranked by distance</summary>
-      <div style="position:relative;padding-bottom:12px">
-        <p class="lede" style="margin-top:6px">Each facet drawn as the distance between the two of you, ordered by how far apart you are. Long lines are where you differ most, the tight pairs at the bottom are where you match.</p>
-        <svg id="dumbbell" viewBox="0 0 760 320" width="100%" role="img" aria-label="Dumbbell plot comparing the two people across facets"></svg>
-        <div class="chart-tip" id="dumbTip"></div>
-        <div class="legend">
-          <span><span class="dot" style="background:var(--pa)"></span>Person A</span>
-          <span><span class="dot" style="background:var(--pb)"></span>Person B</span>
-        </div>
-      </div>
-    </details>
   </section>
 
   <section>
-    <p class="ai">AI interpretation</p>
+    <h2>What is driving your pair</h2>
+    <p class="lede">We open with your strength, then the patterns that move the relationship most. Both-high, both-low, and far-apart are the drivers; where you both sit in the middle, it rarely needs action.</p>
+
+    <div class="driver s-align">
+      <div class="rank">★</div><svg class="mini" id="d0" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#dff0e6;color:#2c7048;">Start here · your strength</span><h3>You both trust each other</h3><p>Both high on a trait that works best when shared. This is your common ground, the base the rest can stand on.</p></div>
+      <div class="daction"><b>Do this:</b> name it and lean on it when you tackle the harder differences below.</div>
+    </div>
+    <div class="driver s-collision">
+      <div class="rank">1</div><svg class="mini" id="d1" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#fdeadd;color:#9e4310;">Both high · drives strongly</span><h3>You both want the last word</h3><p>Both very high on the need to be heard, so in a disagreement two strong voices compete instead of trading off.</p></div>
+      <div class="daction"><b>Do this:</b> take turns; let whoever is calmer go second rather than louder.</div>
+    </div>
+    <div class="driver s-compl">
+      <div class="rank">2</div><svg class="mini" id="d2" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#d5e7e8;color:#024d54;">Far apart · drives strongly</span><h3>Far apart on pace, and that can help</h3><p>One of you decides quickly, the other wants to think first. Left alone it grates; used on purpose it balances you.</p></div>
+      <div class="daction"><b>Do this:</b> let the faster one move on the small things and the slower one think through the big ones.</div>
+    </div>
+    <div class="driver s-friction">
+      <div class="rank">3</div><svg class="mini" id="d3" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#f7eede;color:#8a5a12;">Far apart · drives strongly</span><h3>Far apart on how dependable to be</h3><p>You hold different standards for following through, a thing you mostly need to share, so it rubs.</p></div>
+      <div class="daction"><b>Do this:</b> say plainly what each of you can count on from the other rather than guessing each time.</div>
+    </div>
+    <div class="driver s-blind">
+      <div class="rank">4</div><svg class="mini" id="d4" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#dde3e8;color:#021F36;">Both low · quiet but real</span><h3>Neither of you watches what is coming</h3><p>Both low on noticing what is changing around you, so problems build up before either of you clocks them.</p></div>
+      <div class="daction"><b>Do this:</b> agree that one of you raises the early what-if, since neither will by reflex.</div>
+    </div>
+    <div class="driver s-compl">
+      <div class="rank">5</div><svg class="mini" id="d5" viewBox="0 0 160 58"></svg>
+      <div class="dtext"><span class="tag" style="background:#d5e7e8;color:#024d54;">Far apart · worth watching</span><h3>Far apart on needing to feel appreciated</h3><p>A wants it said out loud; B feels it without the words, so each can misread the other.</p></div>
+      <div class="daction"><b>Do this:</b> say it the way the other needs to hear it; do not read B's quiet as not caring.</div>
+    </div>
+  </section>
+
+  <section>
+    <p class="ai" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block"></span>AI interpretation</p>
     <h2>What is going on inside each of you</h2>
-    <p class="lede">Some of what matters is not between you, it is inside each of you, where a loud trait can hide a quieter one. Knowing this changes how you read each other.</p>
+    <p class="lede">Some of what matters is not between you, it is inside each of you, where a loud trait can hide a quieter one.</p>
     <div class="needs">
-      <div class="need" style="background:#eef1f4">
-        <h3 style="color:var(--pa)">Person A</h3>
-        <p>A's strong need to be heard sits on top of low self-worth. A comes across as confident and vocal, but that drive is more fragile than it looks. Push on the idea, never the person, or A goes quiet.</p>
-      </div>
-      <div class="need" style="background:#fbeef6">
-        <h3 style="color:var(--pb)">Person B</h3>
-        <p>B's fast, outward energy can hide low attention to reliability and downside. What reads to A as confidence is sometimes B moving before checking. The momentum is real, the caution is not there yet.</p>
-      </div>
+      <div class="need" style="background:#eef1f4"><h3 style="color:var(--pa)">Person A</h3><p>A's strong need to be heard sits on top of low self-worth. A comes across as confident and vocal, but that drive is more fragile than it looks. When you disagree, go after the point, not the person.</p></div>
+      <div class="need" style="background:#fbeef6"><h3 style="color:var(--pb)">Person B</h3><p>B's fast, outward energy can hide low attention to follow-through and downside. What reads to A as confidence is sometimes B moving before checking.</p></div>
     </div>
   </section>
 
   <section>
-    <p class="ai">AI interpretation</p>
     <h2>What each of you needs from the other</h2>
-    <p class="lede">The single most useful read in this report. Name these out loud and most of the friction softens on its own.</p>
+    <p class="lede">The single most useful read in this report. Name these out loud and most of the friction softens.</p>
     <div class="needs">
-      <div class="need" style="background:#eef1f4">
-        <h3 style="color:var(--pa)">A needs from B</h3>
-        <p>Room to finish a thought and a moment to think before things get settled. Do not take A's quiet as agreement or as pulling away; A is still working it through. Steadiness valued, not rushed.</p>
-      </div>
-      <div class="need" style="background:#fbeef6">
-        <h3 style="color:var(--pb)">B needs from A</h3>
-        <p>Freedom to be spontaneous on the small, easily-changed things without it turning into a discussion every time. Recognition that B's quiet is not unhappiness. Energy met with energy, not with caution every time.</p>
-      </div>
+      <div class="need" style="background:#eef1f4"><h3 style="color:var(--pa)">A needs from B</h3><p>Room to finish a thought and a beat to sit with something before deciding. Do not take A's quiet as agreement or as pulling away; A is still working it through.</p></div>
+      <div class="need" style="background:#fbeef6"><h3 style="color:var(--pb)">B needs from A</h3><p>Freedom to act on the small, reversible things without rehashing each one. Recognition that B's quiet is not a sign something is wrong.</p></div>
     </div>
   </section>
 
   <section>
-    <p class="ai">AI interpretation</p>
-    <h2>Three suggested next steps</h2>
-    <div class="step">
-      <div class="step-head"><span class="step-num">1</span><div><h3>Share the floor</h3><span class="step-sig" style="background:#fdeadd;color:#9e4310;">Addresses the shared collision</span></div></div>
-      <ul>
-        <li>Notice when you are both reaching to talk, and let one finish before the other starts.</li>
-        <li>When something matters, let one of you say it fully before the other responds.</li>
-        <li>Say out loud whether you are just thinking aloud or actually deciding something.</li>
-        <li>Keep a simple signal for "I am not done," so neither talks over the other.</li>
-      </ul>
-    </div>
-    <div class="step">
-      <div class="step-head"><span class="step-num">2</span><div><h3>Keep an eye on the blind spot</h3><span class="step-sig" style="background:#dde3e8;color:#021F36;">Addresses the shared low</span></div></div>
-      <ul>
-        <li>One of you takes responsibility for noticing what is building up, with people, money, or plans, that neither of you watches by default.</li>
-        <li>Now and then, ask each other "what are we not paying attention to."</li>
-        <li>On big choices, get one outside perspective as a check.</li>
-        <li>Say your assumptions out loud before deciding, since you each start from different unspoken ones.</li>
-      </ul>
-    </div>
-    <div class="step">
-      <div class="step-head"><span class="step-num">3</span><div><h3>Lean into your differences</h3><span class="step-sig" style="background:#d5e7e8;color:#024d54;">Difference into complementarity</span></div></div>
-      <ul>
-        <li>Let A carry the steady, follow-through parts and B carry the spontaneous, energizing parts.</li>
-        <li>Agree which choices are small and easily changed (B can just go) and which are big and worth slowing down for (decide together).</li>
-        <li>Show appreciation the way the other actually feels it. A likes it said out loud; B mostly does not need that, so do not read B's quiet as a problem.</li>
-        <li>On the things that matter most, lean on both of you, so A's care and B's drive balance each other.</li>
-      </ul>
-    </div>
-  </section>
-
-  <section>
-    <p class="ai">AI interpretation</p>
     <h2>How the pair communicates</h2>
     <div class="split">
-      <div class="panel">
-        <div class="tagline" style="color:var(--teal)">In general</div>
-        <p>A and B come at things in opposite ways. A is steady, thinks first, and is slow to say something out loud. B is quick, lively, and happy to decide in the moment. Both want to be heard, so conversations can turn into two people making their case rather than building on each other. Neither says out loud what they are each assuming, so they sometimes start from different places without realizing it.</p>
-      </div>
-      <div class="panel">
-        <div class="tagline" style="color:var(--orange)">Under pressure</div>
-        <p>A goes quiet and inward while B speeds up and pushes. From the outside it looks like A has checked out and B has taken over, when really A is still thinking. B reads the quiet as agreement. A reads the speed as steamrolling. Both are honest misreads, and both are wrong.</p>
-      </div>
+      <div class="panel"><div class="tagline" style="color:var(--teal)">In general</div><p>A is measured, careful, and slower to say things out loud. B is quick, energetic, and comfortable thinking aloud. Both want to be heard, so talks can turn into two people making strong cases rather than one building on the other.</p></div>
+      <div class="panel"><div class="tagline" style="color:var(--orange)">Under pressure</div><p>A goes quiet and inward while B speeds up and pushes. It looks like A has checked out and B has taken over, when really A is still processing. B reads the silence as agreement; A reads the speed as steamrolling.</p></div>
     </div>
-    <div class="avoid">
-      <b>How to avoid communication conflict</b>
-      <ul>
-        <li>Give A a moment to respond, after a pause or later, and have B hold off on settling things until A has weighed in.</li>
-        <li>Keep the dreaming-out-loud separate from the deciding, so B's speed and A's care each get their own moment.</li>
-      </ul>
+    <div class="avoid"><b>How to avoid communication conflict</b><ul>
+      <li>Give A a beat to respond, even by stepping away and coming back, and have B hold the question open until A has weighed in.</li>
+      <li>Separate venting from deciding, so B's quick read and A's slow one each get their own moment.</li>
+    </ul></div>
+  </section>
+
+  <section>
+    <h2>How the pair handles conflict</h2>
+    <p>Your conflict is the classic mover-versus-thinker clash, sharpened because you both need to be heard. A wants a plan and steady follow-through. B wants to move and adjust. When you collide, A digs into how things should be done and B into momentum, and because both want the last word, it can stall.</p>
+    <div class="split">
+      <div class="panel"><div class="tagline" style="color:var(--teal)">Mitigate it</div><p>Name the difference in pace as a feature, not a fault. Agree ahead of time which choices are small and reversible, where B leads, and which are big and costly, where A leads.</p></div>
+      <div class="panel"><div class="tagline" style="color:var(--orange)">Promote healthy conflict</div><p>Your risk is the wrong shape of conflict: A going quiet and B bulldozing. Make it safe for A to say "I am not done" and normal for B to ask "what am I missing," so it stays between two equals.</p></div>
     </div>
   </section>
 
   <section>
-    <p class="ai">AI interpretation</p>
-    <h2>How the pair handles conflict</h2>
-    <p>Their conflict is the classic fast-versus-careful clash, sharpened because both want to be heard. A wants a plan and follow-through. B wants to move and adjust along the way. When they clash, A digs into how things should be done and B digs into momentum, and because both want the last word, it can stall rather than resolve.</p>
-    <div class="split">
-      <div class="panel">
-        <div class="tagline" style="color:var(--teal)">Mitigate it</div>
-        <p>Name the difference in pace as a feature, not a fault. Agree ahead of time which things are small and quick (B leads) and which are big and worth slowing down for (A leads). That one agreement takes most of the recurring friction out, because the argument about how fast to move is settled before it starts.</p>
-      </div>
-      <div class="panel">
-        <div class="tagline" style="color:var(--orange)">Promote healthy conflict</div>
-        <p>Their risk is not too much conflict, it is the wrong shape of it: A going quiet and B steamrolling. Make it safe and normal for A to say "I am not done" and for B to ask "what am I missing," so disagreements happen out in the open between two equals rather than one going silent and resenting it later.</p>
-      </div>
-    </div>
+    <h2>Every pattern we found</h2>
+    <p class="lede">The full map, grouped by the four shapes from "How to read the shapes" above, and only those four. Every trait falls into one of them, so you can see where you sit on everything. The example shows a representative set; a live report covers all 89.</p>
+    <div id="facetmap"></div>
   </section>
 
-  <div class="foot">Example report with illustrative data for format demonstration. Personal Threat Profile and the 5P model are the property of BrainWise Enterprises. Confidential.</div>
+  <div class="coach">
+    <span class="coach-label">For the coach</span>
+    <h2>Running the debrief</h2>
+    <p class="lede">Facilitation material, not needed for the pair to act.</p>
+    <details class="more"><summary>The why behind each call</summary><div class="body"><p style="font-size:13.5px;margin-top:6px">Each pattern is read from the trait's fixed labels against the pair's two scores. Both high on a trait that competes (the need to be heard) is a collision; both high on a trait that bonds (trust) is a strength. Both low on a protective trait (situational awareness) is a blind spot. Far apart on a trait where difference is useful (pace) is complementarity; far apart on a trait you should share (consistency) is friction. Both in the middle is usually left alone. The ranking weights each by how far past the line it sits, how loud it is in behavior, and the size of the gap between you.</p></div></details>
+    <details class="more"><summary>Conversation prompts for the debrief</summary><div class="body"><ul class="prompts">
+      <li>When you argue, who tends to go quiet, and what would help them stay in it?</li>
+      <li>Where has your difference in pace cost you, and where has it saved you?</li>
+      <li>Which of you is better placed to notice trouble early, and will you make it their job?</li>
+      <li>What does the trust you share let you risk that a lower-trust pair could not?</li>
+    </ul></div></details>
+  </div>
+
+  <div class="foot">Example report with illustrative data for format demonstration. Colors shown are placeholders for BrainWise brand values. Personal Threat Profile and the 5P model are the property of BrainWise Enterprises. Confidential.</div>
 </div>
 
 <script>
@@ -294,102 +260,58 @@
   function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
   function tip(tp,wrap,ev,html){tp.innerHTML=html;var r=wrap.getBoundingClientRect();tp.style.left=(ev.clientX-r.left+12)+"px";tp.style.top=(ev.clientY-r.top-10)+"px";tp.style.display="block";}
 
-  /* ---- pentagon, two series ---- */
+  /* pair shapes: two dots, A dark, B bright, with a connector */
+  function pairshape(id,type,h){
+    var svg=document.getElementById(id); if(!svg) return;
+    var baseY=(h||50)*0.55, pa="#021F36", pb="#B5179E", ax,bx;
+    svg.appendChild(el("line",{x1:14,y1:baseY,x2:146,y2:baseY,stroke:"#e7e0d2","stroke-width":2,"stroke-linecap":"round"}));
+    if(type==="farapart"){ax=38;bx=124;}
+    else if(type==="bothhigh"){ax=116;bx=132;}
+    else if(type==="bothlow"){ax=28;bx=44;}
+    else {ax=74;bx=90;}
+    svg.appendChild(el("line",{x1:ax,y1:baseY,x2:bx,y2:baseY,stroke:"#cfc8ba","stroke-width":2.5,"stroke-linecap":"round"}));
+    svg.appendChild(el("circle",{cx:ax,cy:baseY,r:6,fill:pa,stroke:"#fff","stroke-width":1.6}));
+    svg.appendChild(el("circle",{cx:bx,cy:baseY,r:6,fill:pb,stroke:"#fff","stroke-width":1.6}));
+  }
+  pairshape("g1","farapart");pairshape("g2","bothhigh");pairshape("g3","bothlow");pairshape("g4","bothmed");
+  pairshape("d0","bothhigh",58);pairshape("d1","bothhigh",58);pairshape("d2","farapart",58);pairshape("d3","farapart",58);pairshape("d4","bothlow",58);pairshape("d5","farapart",58);
+
+  /* full pair facet map */
+  (function(){
+    var host=document.getElementById("facetmap");
+    var groups=[
+      {label:"Far apart (a split)",color:"#006D77",shape:"farapart",items:["Action orientation","Risk tolerance","Status quo and stability","Recognition need","Consistency need","Commitment reliability"]},
+      {label:"Both high",color:"#F5741A",shape:"bothhigh",items:["Voice and influence","Autonomy and control","Power and influence","Need to trust others","Equality and reciprocity"]},
+      {label:"Both low",color:"#021F36",shape:"bothlow",items:["Situational awareness","Short-term loss aversion"]},
+      {label:"Both medium (usually not a driver)",color:"#9C9683",shape:"bothmed",items:["Group belonging","Ambiguity tolerance"]}
+    ];
+    var n=0;
+    groups.forEach(function(g){
+      var h=document.createElement("div"); h.className="fgrouphead"; h.innerHTML='<span class="dot" style="background:'+g.color+'"></span>'+g.label; host.appendChild(h);
+      var grid=document.createElement("div"); grid.className="facetgrid"; host.appendChild(grid);
+      g.items.forEach(function(fname){
+        n++; var id="fm"+n;
+        var tile=document.createElement("div"); tile.className="ftile"; tile.style.borderTopColor=g.color;
+        var sv=document.createElementNS(NS,"svg"); sv.setAttribute("viewBox","0 0 160 46"); sv.id=id;
+        var nm=document.createElement("div"); nm.className="fn"; nm.textContent=fname;
+        tile.appendChild(sv); tile.appendChild(nm); grid.appendChild(tile);
+        pairshape(id,g.shape,46);
+      });
+    });
+  })();
+
+  /* pentagon */
   (function(){
     var svg=document.getElementById("pentagon"),tp=document.getElementById("penTip"),wrap=svg.parentNode;
     var cx=220,cy=222,R=135,N=5;
     var axes=[{label:"Protection",color:"#006D77"},{label:"Participation",color:"#F5741A"},{label:"Prediction",color:"#185FA5"},{label:"Purpose",color:"#C99700"},{label:"Pleasure",color:"#7B5EA7"}];
-    var A={name:"Person A",color:"#021F36",v:[59,41,50,52,55]};
-    var B={name:"Person B",color:"#B5179E",v:[40,70,75,45,38]};
-    function ang(i){return (-90+i*360/N)*Math.PI/180;}
-    function P(i,r){var a=ang(i);return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
-    axes.forEach(function(ax,i){
-      var a0=ang(i)-Math.PI/N,a1=ang(i)+Math.PI/N;
-      var x0=cx+R*Math.cos(a0),y0=cy+R*Math.sin(a0),x1=cx+R*Math.cos(a1),y1=cy+R*Math.sin(a1);
-      svg.appendChild(el("path",{d:"M"+cx+" "+cy+" L"+x0+" "+y0+" A"+R+" "+R+" 0 0 1 "+x1+" "+y1+" Z",fill:ax.color,"fill-opacity":0.10}));
-    });
-    [25,50,75,100].forEach(function(g){
-      var rg=R*g/100, ring=axes.map(function(ax,i){var p=P(i,rg);return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z";
-      svg.appendChild(el("path",{d:ring,fill:"none",stroke:"#d9d1c2","stroke-width":1}));
-    });
-    axes.forEach(function(ax,i){var p=P(i,R);svg.appendChild(el("line",{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:"#cfc8ba","stroke-width":1}));
-      var lp=P(i,R+24);svg.appendChild(el("text",{x:lp[0],y:lp[1]+4,fill:ax.color,"font-size":12.5,"font-weight":600,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.label;});
-    [B,A].forEach(function(s){
-      var pts=s.v.map(function(v,i){return P(i,R*v/100);});
-      var d=pts.map(function(p,i){return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z";
-      svg.appendChild(el("path",{d:d,fill:s.color,"fill-opacity":0.13,stroke:s.color,"stroke-width":2.5,"stroke-linejoin":"round"}));
-      pts.forEach(function(p,i){
-        var c=el("circle",{cx:p[0],cy:p[1],r:5,fill:s.color,stroke:"#fff","stroke-width":1.5,style:"cursor:pointer"});
-        c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"<b>"+s.name+"</b><br>"+axes[i].label+": "+s.v[i]);});
-        c.addEventListener("mouseleave",function(){tp.style.display="none";});
-        svg.appendChild(c);
-      });
-    });
+    var A={name:"Person A",color:"#021F36",v:[59,41,50,52,55]},B={name:"Person B",color:"#B5179E",v:[40,70,75,45,38]};
+    function ang(i){return (-90+i*360/N)*Math.PI/180;} function P(i,r){var a=ang(i);return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+    axes.forEach(function(ax,i){var a0=ang(i)-Math.PI/N,a1=ang(i)+Math.PI/N;svg.appendChild(el("path",{d:"M"+cx+" "+cy+" L"+(cx+R*Math.cos(a0))+" "+(cy+R*Math.sin(a0))+" A"+R+" "+R+" 0 0 1 "+(cx+R*Math.cos(a1))+" "+(cy+R*Math.sin(a1))+" Z",fill:ax.color,"fill-opacity":0.10}));});
+    [25,50,75,100].forEach(function(g){var rg=R*g/100;svg.appendChild(el("path",{d:axes.map(function(ax,i){var p=P(i,rg);return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z",fill:"none",stroke:"#d9d1c2","stroke-width":1}));});
+    axes.forEach(function(ax,i){var p=P(i,R);svg.appendChild(el("line",{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:"#cfc8ba","stroke-width":1}));var lp=P(i,R+24);svg.appendChild(el("text",{x:lp[0],y:lp[1]+4,fill:ax.color,"font-size":12.5,"font-weight":600,"text-anchor":"middle","font-family":"Poppins"})).textContent=ax.label;});
+    [B,A].forEach(function(s){var pts=s.v.map(function(v,i){return P(i,R*v/100);});svg.appendChild(el("path",{d:pts.map(function(p,i){return (i?"L":"M")+p[0]+" "+p[1];}).join(" ")+" Z",fill:s.color,"fill-opacity":0.13,stroke:s.color,"stroke-width":2.5,"stroke-linejoin":"round"}));pts.forEach(function(p,i){var c=el("circle",{cx:p[0],cy:p[1],r:5,fill:s.color,stroke:"#fff","stroke-width":1.5,style:"cursor:pointer"});c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"<b>"+s.name+"</b><br>"+axes[i].label+": "+s.v[i]);});c.addEventListener("mouseleave",function(){tp.style.display="none";});svg.appendChild(c);});});
   })();
-
-  /* ---- dumbbell ---- */
-  (function(){
-    var svg=document.getElementById("dumbbell"),tp=document.getElementById("dumbTip"),wrap=svg.parentNode;
-    var X0=190,X1=620,aw=X1-X0;
-    function sx(v){return X0+v/100*aw;}
-    var rows=[
-      {f:"Action orientation",a:9,b:82},
-      {f:"Recognition need",a:86,b:30},
-      {f:"Consistency need",a:92,b:40},
-      {f:"Risk tolerance",a:91,b:45},
-      {f:"Voice and influence",a:93,b:88},
-      {f:"Situational awareness",a:11,b:15},
-      {f:"Trust in each other",a:82,b:79}
-    ];
-    var top=26,rh=44;
-    [0,25,50,75,100].forEach(function(g){
-      svg.appendChild(el("line",{x1:sx(g),y1:top-8,x2:sx(g),y2:top+rows.length*rh-rh+12,stroke:"#eee6d8","stroke-width":1}));
-      svg.appendChild(el("text",{x:sx(g),y:top-12,fill:"#bdb4a2","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent=g;
-    });
-    rows.forEach(function(R0,i){
-      var cy=top+i*rh;
-      svg.appendChild(el("text",{x:12,y:cy+4,fill:"#1d2b38","font-size":12.5,"font-family":"Inter"})).textContent=R0.f;
-      var delta=Math.abs(R0.a-R0.b);
-      svg.appendChild(el("line",{x1:sx(R0.a),y1:cy,x2:sx(R0.b),y2:cy,stroke:"#cfc8ba","stroke-width":2}));
-      svg.appendChild(el("text",{x:(sx(R0.a)+sx(R0.b))/2,y:cy-8,fill:"#9C9683","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent=delta+" apart";
-      [["A",R0.a,"#021F36"],["B",R0.b,"#B5179E"]].forEach(function(p){
-        var c=el("circle",{cx:sx(p[1]),cy:cy,r:7,fill:p[2],stroke:"#fff","stroke-width":1.5,style:"cursor:pointer"});
-        c.addEventListener("mouseenter",function(e){tip(tp,wrap,e,"Person "+p[0]+" · <b>"+p[1]+"</b>");});
-        c.addEventListener("mouseleave",function(){tp.style.display="none";});
-        svg.appendChild(c);
-      });
-    });
-  })();
-
-  /* ---- intuitive paired signal cards ---- */
-  function sigP(id,type){
-    var svg=document.getElementById(id); if(!svg) return;
-    var baseY=50,x0=24,x1=296;
-    svg.appendChild(el("line",{x1:x0,y1:baseY,x2:x1,y2:baseY,stroke:"#e7e0d2","stroke-width":2,"stroke-linecap":"round"}));
-    svg.appendChild(el("text",{x:x0,y:baseY+22,fill:"#bdb4a2","font-size":10,"font-family":"Inter"})).textContent="Lower";
-    var hi=el("text",{x:x1,y:baseY+22,fill:"#bdb4a2","font-size":10,"text-anchor":"end","font-family":"Inter"});hi.textContent="Higher";svg.appendChild(hi);
-    function dot(x,c){svg.appendChild(el("circle",{cx:x,cy:baseY-8,r:8,fill:c,"fill-opacity":.9,stroke:"#fff","stroke-width":2}));}
-    if(type==="collision"){
-      dot(244,"#F5741A"); dot(262,"#F5741A");
-      svg.appendChild(el("text",{x:290,y:baseY-12,fill:"#F5741A","font-size":17,"text-anchor":"middle"})).textContent="\u2605";
-      [-6,6].forEach(function(dy){svg.appendChild(el("line",{x1:270,y1:baseY-8+dy,x2:283,y2:baseY-14,stroke:"#F5741A","stroke-width":1.5,"stroke-opacity":.5}));});
-      svg.appendChild(el("text",{x:150,y:baseY-12,fill:"#bdb4a2","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="both high";
-    } else if(type==="compl"){
-      dot(70,"#006D77"); dot(250,"#006D77");
-      svg.appendChild(el("text",{x:160,y:baseY-3,fill:"#006D77","font-size":22,"font-weight":"700","text-anchor":"middle"})).textContent="+";
-      svg.appendChild(el("path",{d:"M66 22 Q160 6 254 22",fill:"none",stroke:"#006D77","stroke-width":1.5,"stroke-opacity":.5}));
-      svg.appendChild(el("text",{x:160,y:17,fill:"#006D77","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="two halves, one whole";
-    } else if(type==="blind"){
-      dot(64,"#021F36"); dot(82,"#021F36");
-      svg.appendChild(el("rect",{x:170,y:baseY-30,width:124,height:42,rx:9,fill:"none",stroke:"#021F36","stroke-width":1.2,"stroke-dasharray":"4 4","stroke-opacity":.55}));
-      svg.appendChild(el("text",{x:232,y:baseY-5,fill:"#021F36","font-size":11,"text-anchor":"middle","fill-opacity":.65,"font-family":"Inter"})).textContent="neither one here";
-    } else if(type==="align"){
-      dot(226,"#9C9683"); dot(248,"#9C9683");
-      svg.appendChild(el("path",{d:"M220 22 Q237 8 254 22",fill:"none",stroke:"#9C9683","stroke-width":1.5,"stroke-opacity":.6}));
-      svg.appendChild(el("text",{x:150,y:baseY-12,fill:"#7d7768","font-size":10,"text-anchor":"middle","font-family":"Inter"})).textContent="both high, shared ground";
-    }
-  }
-  sigP("sigCollP","collision"); sigP("sigComplP","compl"); sigP("sigBlindP","blind"); sigP("sigAlignP","align");
 })();
 </script>
 </body>
